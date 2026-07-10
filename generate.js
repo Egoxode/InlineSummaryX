@@ -72,18 +72,24 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 	// Generate Summary Prompt
 
 	// Add Main Prompt
-	const startPrompt = ilsSettings.startPrompt;
-	const startPromptTokenCount = await stContext.getTokenCountAsync(startPrompt);
+	const mainPromptMsg = {
+		content: ilsSettings.startPrompt + "\n" + ilsSettings.historicalContextStartMarker,
+		role: "user" };
+	const startPromptTokenCount = await stContext.getTokenCountAsync(mainPromptMsg.content);
 	remainingSize -= startPromptTokenCount;
 
 	// Setup Mid-Prompt
-	const midPrompt = (ilsSettings.midPrompt !== "") ? "\n" + ilsSettings.midPrompt : "";
-	const midPromptToekenCount = await stContext.getTokenCountAsync(midPrompt);
+	const midPromptMsg = {
+		content: ilsSettings.historicalContextEndMarker + "\n" + ((ilsSettings.midPrompt !== "") ? "\n" + ilsSettings.midPrompt : "") + "\n" + ilsSettings.summariseStartMarker,
+		role: "user" };
+	const midPromptToekenCount = await stContext.getTokenCountAsync(midPromptMsg.content);
 	remainingSize -= midPromptToekenCount;
 
 	// Setup End-Prompt
-	const endPrompt = (ilsSettings.endPrompt !== "") ? "\n" + ilsSettings.endPrompt : "";
-	const endPromptTokenCount = await stContext.getTokenCountAsync(endPrompt);
+	const endPromptMsg = {
+		content: ilsSettings.summariseEndMarker + ((ilsSettings.endPrompt !== "") ? "\n" + ilsSettings.endPrompt : ""),
+		role: "user" };
+	const endPromptTokenCount = await stContext.getTokenCountAsync(endPromptMsg.content);
 	remainingSize -= endPromptTokenCount
 
 	const instructionTokenTotal = startPromptTokenCount + midPromptToekenCount + endPromptTokenCount;
@@ -101,7 +107,9 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 		};
 
 	// - Content to Summarise
-	let messagesToSummarise = "";
+	let summariseMsg = [];
+	let messagesToSummariseTokenCount = 0;
+
 	for (const [index, msg] of originalMessages.entries())
 	{
 		const localDepth = originalMessages.length - index - 1 + numMsgAfterSummary;
@@ -116,14 +124,15 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 			}
 
 			if (msgText.length > 0)
-				messagesToSummarise += "\n" + msgText;
+			{
+				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(msgText);
+				summariseMsg.push({ content: msgText, role: msg.is_user ? "user" : "assistant" });
+			}
 		}
 	}
-	if (messagesToSummarise.length == 0)
+	if (summariseMsg.length == 0)
 		return { promptOk: false, promptText: "", promptError: "No messages to summarise. Are all messages in the selected range hidden or blank?" };
 
-	messagesToSummarise = "\n" + ilsSettings.summariseStartMarker + messagesToSummarise + "\n" + ilsSettings.summariseEndMarker;
-	const messagesToSummariseTokenCount = await stContext.getTokenCountAsync(messagesToSummarise);
 	remainingSize -= messagesToSummariseTokenCount;
 
 	if (remainingSize < 0)
@@ -139,6 +148,8 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 		};
 
 	// Historic Context
+	let historicalMsg = [];
+
 	let historicContex = "";
 	let histContextStart = 0;
 	if (ilsSettings.historicalContexDepth >= 0)
@@ -147,8 +158,6 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 		if (histContextStart < 0)
 			histContextStart = 0;
 	}
-
-	const histCtxLabels = "\n" + ilsSettings.historicalContextStartMarker + "\n" + ilsSettings.historicalContextEndMarker;
 
 	let histContextTokenCount = 0;
 	for (let i = msgIndex - 1; i >= histContextStart; --i)
@@ -165,16 +174,16 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 					msg.is_user ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT,
 					{ isPrompt: true, isEdit: false, depth: localDepth });
 			}
-			msgText += "\n";
 
 			if (msgText.length > 0)
 			{
-				const tokenCost = await stContext.getTokenCountAsync(histCtxLabels + msgText);
+				const tokenCost = await stContext.getTokenCountAsync(msgText);
 				if ((remainingSize - tokenCost) > 0)
 				{
 					histContextTokenCount += tokenCost;
 					remainingSize -= tokenCost;
 					historicContex = msgText + historicContex;
+					historicalMsg.unshift({ content: msgText, role: msg.is_user ? "user" : "assistant" });
 				}
 				// Context too full
 				else
@@ -185,33 +194,22 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 		}
 	}
 
-	// Append Historic Context
-	const summaryPrompt = startPrompt + "\n"
-		+ ilsSettings.historicalContextStartMarker + "\n"
-		+ historicContex + "\n"
-		+ ilsSettings.historicalContextEndMarker
-		+ midPrompt
-		+ messagesToSummarise
-		+ endPrompt;
+	// Combine all parts
+	let summaryPromptMessages = [mainPromptMsg, ...historicalMsg, midPromptMsg, ...summariseMsg, endPromptMsg];
 
-	const finalSize = await stContext.getTokenCountAsync(summaryPrompt);
-	if (finalSize > maxPromptSize)
-		return {
-			promptOk: false,
-			promptText: "",
-			promptError: "Final summary prompt exceeded context:\nReserved for reply: " + resSize
-				+ ";\nStart Prompt: " + startPromptTokenCount
-				+ ";\nMid Prompt: " + midPromptToekenCount
-				+ ";\nEnd Prompt: " + endPromptTokenCount
-				+ ";\nMessages to Summarise: " + messagesToSummariseTokenCount
-				+ ";\nHistorical Context: " + histContextTokenCount
-				+ ";\nTotal: " + (resSize + instructionTokenTotal + messagesToSummariseTokenCount + histContextTokenCount) + " of " + ctxSize + " context."
-		};
+	// Finalize
+	if (!ilsSettings.useMultiMessage)
+	{
+		const singleStr = summaryPromptMessages.map(msg => msg.content).join("\n");
+		summaryPromptMessages = [{
+			content: singleStr,
+			role: "user" }]
+	}
 
-	return { promptOk: true, promptText: summaryPrompt, promptError: "" };
+	return { promptOk: true, promptMsg: summaryPromptMessages, promptError: "" };
 }
 
-export async function StartGenerate(stContext, promptText, responseTokenLimit = 0)
+export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0)
 {
 	const ilsInstance = GetILSInstance();
 	let queryFuture = null;
@@ -232,11 +230,11 @@ export async function StartGenerate(stContext, promptText, responseTokenLimit = 
 			}
 
 			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
-			queryFuture = sendOpenAIRequest("normal", [{ content: promptText, role: "user" }], null, {});
+			queryFuture = sendOpenAIRequest("normal", promptMsg, null, {});
 		}
 		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
 		{
-			const rawPrompt = createRawPrompt(promptText, stContext.mainApi, false, false, null, null);
+			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
 
 			let promptParams = await getTextGenGenerationData(rawPrompt, (responseTokenLimit > 0) ? responseTokenLimit : amount_gen, false, false, null, "normal");
 			queryFuture = generateTextGenWithStreaming(promptParams, abortCtrl.signal);
@@ -273,7 +271,7 @@ export async function StartGenerate(stContext, promptText, responseTokenLimit = 
 		}*/
 		else
 		{
-			let promptParams = { prompt: promptText };
+			let promptParams = { prompt: promptMsg.map(msg => msg.content).join("\n") };
 			if (responseTokenLimit > 0)
 				promptParams.responseLength = responseTokenLimit;
 

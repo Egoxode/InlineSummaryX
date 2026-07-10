@@ -64,8 +64,9 @@ Settings in the Extension settings menu:
 | Use specified Connection Profile | Use the connection profile selected in the dropdown for generating summaries |
 | Use specified API Preset | Use the API Preset selected in the dropdown for generating summaries |
 | Auto Scroll to summarised message | Whether or not automatically scroll chat to the summarised message, summary generation causes that to refresh, and SillyTavern's default behaviour is to scroll to tbe bottom |
-| Enable Regex when summarising messages | Run Regex when on the prompt generation summary |
-| Enable Regex on final summary | Run Regex on the summary after it was generated |
+| Enable Regex when summarising messages | Run Regex on the prompt during summary generation |
+| Enable Regex on final summary | Run Regex on the summary after it has been generated |
+| Enable Multi Message Prompt | Uses multiple messages for the summary generation prompt. Otherwise all prompt text is merged into one user message. |
 | Summary message sender name | Summary messages can have custom sender name, it can either be: User, Character or Custom. If your preset includes name prefixes, using a custom name might hint LLM that specific message is a summary |
 | Restore legacy summary messages | Restores legacy summaries that were generated using Inline Summary versions before v1.2. This may slow down loading older chats and can be disabled once you've recovered all your older chats. |
 
@@ -105,6 +106,9 @@ _**Chat Style - Document**_<br>
 This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
 
 ## Changelog
+
+#### v1.2.1
+Added an option to use multiple messages as the summary prompt. This should make the prompt respect the "Character Names Behavior" setting.
 
 #### v1.2.0
 Fixed original message data being duplicated in the saved chat files leading to file size bloat. A recovery step will run when loading old chats to remove duplicates and move data where it won't get duplicated (can be disabled in options).<br>

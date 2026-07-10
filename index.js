@@ -333,7 +333,7 @@ async function GenerateSummaryAI()
 
 	// Prepare original messages and prompt
 	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-	const { promptOk, promptText, promptError } = await MakeSummaryPrompt(selection.start, stContext.chat.length - (selection.end + 1), originalMessages, stContext, gSettings);
+	const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(selection.start, stContext.chat.length - (selection.end + 1), originalMessages, stContext, gSettings);
 
 	if (!promptOk)
 	{
@@ -344,7 +344,7 @@ async function GenerateSummaryAI()
 	}
 
 	// Start LLM generation asynchronously without awaiting yet
-	let genStart = await StartGenerate(stContext, promptText, gSettings.tokenLimit);
+	let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 
 	// create empty summary message while generation runs
 	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
@@ -668,7 +668,7 @@ const kHeaderButtons = [
 			}
 
 			const originalMessages = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
-			const { promptOk, promptText, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
+			const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
 
 			if (!promptOk)
 			{
@@ -679,7 +679,7 @@ const kHeaderButtons = [
 			}
 
 			// Start LLM generation asynchronously without awaiting yet
-			let genStart = await StartGenerate(stContext, promptText, gSettings.tokenLimit);
+			let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 
 			summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 

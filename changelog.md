@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.2.1
+Added an option to use multiple messages as the summary prompt. This should make the prompt respect the "Character Names Behavior" setting.
+
 #### v1.2.0
 Fixed original message data being duplicated in the saved chat files leading to file size bloat. A recovery step will run when loading old chats to remove duplicates and move data where it won't get duplicated (can be disabled in options).<br>
 Added some error checking to improve rare but critical scenarios where SillyTavern might fail saving chat.
