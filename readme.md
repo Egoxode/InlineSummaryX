@@ -36,6 +36,16 @@ Usage: `x` specifies how many summaries to restore.<br>
 ##### Examples:
 * `/ils-restore 5` - restores original messages from 5 latest summaries.
 
+## Extension Events
+Inline Summary emits several events through SillyTavern's event system so other extensions or scripts can react to the summary workflow.
+
+- `ILS_StartMsgSelected` - emitted when the summary start message is selected. Payload: `{ msgIndex }`
+- `ILS_EndMsgSelected` - emitted when the summary end message is selected. Payload: `{ msgIndex }`
+- `ILS_SelectionCleared` - emitted when the current selection is cleared. Payload: `{}`
+- `ILS_SummaryAdded` - emitted after a summary is created or regenerated. Payload: `{ msgIndex, originalMessages, isManual, isRegenerate }`
+- `ILS_RestoreOriginalsBegin` - emitted just before the original messages are restored. Payload: `{ msgIndex }`
+- `ILS_RestoreOriginalsEnd` - emitted after the restore operation completes. Payload: `{ msgIndex }`
+
 ## How does it work?
 When a range is selected, the extension creates a new empty summary message and inserts it into the chat.<br>
 The selected messages are stored in the `extra` data field of the new summary message.<br>
@@ -107,6 +117,9 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
+#### v1.2.2
+Added event hooks for selection, summary creation, and restore actions so other extensions can respond to the summary workflow.
+
 #### v1.2.1
 Added an option to use multiple messages as the summary prompt. This should make the prompt respect the "Character Names Behavior" setting.
 
@@ -116,16 +129,6 @@ Added some error checking to improve rare but critical scenarios where SillyTave
 
 #### v1.1.9
 Streaming support for Text Completion API. It uses the setting from the preset and will allow larger reply sizes for certain LLM providers.
-
-#### v1.1.8
-Fixed missing fucntion import causing an exception.<br>
-Change summary role from System to User to stop strict modes inserting extra message.
-
-#### v1.1.7
-Fixed v1.1.6 changes not workin with strict/semi-strict modes
-
-#### v1.1.6
-Streaming support for OpenAI API. It uses the setting from the preset and will allow larger reply sizes for certain LLM providers.
 
 ### Previous Changes
 See `changelog.md`

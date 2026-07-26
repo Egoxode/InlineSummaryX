@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.2.2
+Added event hooks for selection, summary creation, and restore actions so other extensions can respond to the summary workflow.
+
 #### v1.2.1
 Added an option to use multiple messages as the summary prompt. This should make the prompt respect the "Character Names Behavior" setting.
 

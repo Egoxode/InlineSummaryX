@@ -113,10 +113,11 @@ function GetSelection(stContext)
 	return stContext.chatMetadata.ils_selection;
 }
 
-function ClearSelection(stContext)
+function ClearSelection(stContext, refresh = true)
 {
 	stContext.chatMetadata.ils_selection = { start: null, end: null };
-	RefreshAllMessageButtons();
+	if (refresh)
+		RefreshAllMessageButtons();
 }
 
 function IsMsgInRange(msgIndex, selection)
@@ -390,6 +391,10 @@ async function GenerateSummaryAI()
 
 	await PopulateSummaryMessage(stContext, stContext.chat[selection.start], genResponse.mainMsg, genResponse.reasoning);
 
+	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: false, isRegenerate: false });
+
+	ClearSelection(stContext, false);
+
 	// Save and reload to reflect the final response in the UI
 	const chatReload2 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
 
@@ -400,8 +405,6 @@ async function GenerateSummaryAI()
 
 	if (chatReload2)
 		BringIntoView(selection.start);
-
-	ClearSelection(stContext);
 
 	return genResponse.isOk && chatReload2;
 }
@@ -434,15 +437,95 @@ async function GenerateSummaryManual()
 	// Add Summary
 	stContext.chat.splice(selection.start, 0, newSummaryMsg);
 
+	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: true, isRegenerate: false });
+
+	ClearSelection(stContext, false);
+
 	const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
 
 	if (chatReload)
 		BringIntoView(selection.start);
 	ilsInstance.operationLock = false;
 
-	ClearSelection(stContext);
-
 	return chatReload;
+}
+
+async function RegenerateSummary(msgIndex)
+{
+	let stContext = SillyTavern.getContext();
+
+	const summaryMsg = GetMessageByIndex(msgIndex, stContext);
+	if (!HasOriginalMessages(summaryMsg))
+		return;
+
+	const ilsInstance = GetILSInstance()
+	if (ilsInstance.operationLock)
+		return;
+
+	ilsInstance.operationLock = true;
+	stContext.deactivateSendButtons();
+
+	// Swap Profile
+	const profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
+
+	if (!profileSwap.success)
+	{
+		stContext.activateSendButtons();
+		ilsInstance.operationLock = false;
+		return;
+	}
+
+	const originalMessages = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
+	const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
+
+	if (!promptOk)
+	{
+		ShowError("Failed to make summary prompt.\n" + promptError);
+		stContext.activateSendButtons();
+		ilsInstance.operationLock = false;
+		return
+	}
+
+	// Start LLM generation asynchronously without awaiting yet
+	let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+
+	summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
+
+	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
+	if (summaryMsgElement)
+	{
+		// Clear reasoning element to make it neater.
+		const reasoningElement = summaryMsgElement.querySelector(".mes_reasoning_details");
+		if (reasoningElement)
+			reasoningElement.remove();
+
+		const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+		if (mesTextElement)
+		{
+			// Create and insert loading spinner
+			// We don't need to delete the spinner as reloading the chat will destroy it for us.
+			const spinner = MakeSpinner();
+			mesTextElement.innerHTML = "";
+			mesTextElement.appendChild(spinner);
+		}
+	}
+
+	// Now await for the LLM response to complete
+	let genResponse = await FinishGenerate(stContext, genStart);
+
+	await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
+
+	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: msgIndex, originalMessages: originalMessages, isManual: false, isRegenerate: true });
+
+	// Save and reload to reflect the final response in the UI
+	await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.");
+
+	await SwapBackFromSummaryProfile(stContext, profileSwap);
+
+	stContext.activateSendButtons();
+	ilsInstance.operationLock = false;
+
+	BringIntoView(msgIndex);
 }
 
 // =========================
@@ -455,7 +538,7 @@ const kMsgActionButtons = [
 		icon: "fa-arrow-right-to-bracket",
 		title: "Select Summary End",
 
-		OnClick(msgIndex)
+		async OnClick(msgIndex)
 		{
 			if (IsOperationLockEngaged())
 				return;
@@ -464,6 +547,8 @@ const kMsgActionButtons = [
 			const selection = GetSelection(stContext);
 			selection.end = msgIndex;
 			RefreshAllMessageButtons();
+
+			await stContext.eventSource.emit("ILS_EndMsgSelected", { msgIndex });
 		},
 
 		GetColor(msgIndex)
@@ -485,7 +570,7 @@ const kMsgActionButtons = [
 		icon: "fa-arrow-right-from-bracket",
 		title: "Select Summary Start",
 
-		OnClick(msgIndex)
+		async OnClick(msgIndex)
 		{
 			if (IsOperationLockEngaged())
 				return;
@@ -494,6 +579,8 @@ const kMsgActionButtons = [
 			const selection = GetSelection(stContext);
 			selection.start = msgIndex;
 			RefreshAllMessageButtons();
+
+			await stContext.eventSource.emit("ILS_StartMsgSelected", { msgIndex });
 		},
 
 		GetColor(msgIndex)
@@ -522,13 +609,15 @@ const kMsgActionButtons = [
 			return IsMsgInRange(msgIndex, selection) || selection.start === msgIndex || selection.end === msgIndex;
 		},
 
-		OnClick(msgIndex)
+		async OnClick(msgIndex)
 		{
 			if (IsOperationLockEngaged())
 				return;
 
 			const stContext = SillyTavern.getContext();
 			ClearSelection(stContext);
+
+			await stContext.eventSource.emit("ILS_SelectionCleared", {});
 		},
 
 		GetColor(msgIndex)
@@ -614,6 +703,8 @@ const kHeaderButtons = [
 			ilsInstance.operationLock = true;
 			stContext.deactivateSendButtons();
 
+			await stContext.eventSource.emit("ILS_RestoreOriginalsBegin", { msgIndex });
+
 			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
 
 			// Technically this being false should be an error, since we shouldn't be able to click restore
@@ -627,11 +718,14 @@ const kHeaderButtons = [
 				stContext.chat.splice(msgIndex, 1);
 			}
 
+			ClearSelection(stContext, false);
+
+			await stContext.eventSource.emit("ILS_RestoreOriginalsEnd", { msgIndex });
+
 			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Original Messages could not be restored. Refreshing the page is recommended.");
 
 			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
-			ClearSelection(stContext);
 
 			BringIntoView(msgIndex);
 		}
@@ -644,78 +738,7 @@ const kHeaderButtons = [
 
 		async OnClick(msgIndex)
 		{
-			let stContext = SillyTavern.getContext();
-
-			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
-			if (!HasOriginalMessages(summaryMsg))
-				return;
-
-			const ilsInstance = GetILSInstance()
-			if (ilsInstance.operationLock)
-				return;
-
-			ilsInstance.operationLock = true;
-			stContext.deactivateSendButtons();
-
-			// Swap Profile
-			const profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
-
-			if (!profileSwap.success)
-			{
-				stContext.activateSendButtons();
-				ilsInstance.operationLock = false;
-				return;
-			}
-
-			const originalMessages = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
-			const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
-
-			if (!promptOk)
-			{
-				ShowError("Failed to make summary prompt.\n" + promptError);
-				stContext.activateSendButtons();
-				ilsInstance.operationLock = false;
-				return
-			}
-
-			// Start LLM generation asynchronously without awaiting yet
-			let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
-
-			summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
-
-			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
-			if (summaryMsgElement)
-			{
-				// Clear reasoning element to make it neater.
-				const reasoningElement = summaryMsgElement.querySelector(".mes_reasoning_details");
-				if (reasoningElement)
-					reasoningElement.remove();
-
-				const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-				if (mesTextElement)
-				{
-					// Create and insert loading spinner
-					// We don't need to delete the spinner as reloading the chat will destroy it for us.
-					const spinner = MakeSpinner();
-					mesTextElement.innerHTML = "";
-					mesTextElement.appendChild(spinner);
-				}
-			}
-
-			// Now await for the LLM response to complete
-			let genResponse = await FinishGenerate(stContext, genStart);
-
-			await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
-
-			// Save and reload to reflect the final response in the UI
-			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.");
-
-			await SwapBackFromSummaryProfile(stContext, profileSwap);
-
-			stContext.activateSendButtons();
-			ilsInstance.operationLock = false;
-
-			BringIntoView(msgIndex);
+			await RegenerateSummary(msgIndex);
 		}
 	},
 ];
@@ -1248,6 +1271,7 @@ async function RestoreCommand(namedArgs, unnamedArgs)
 		--numToRestore;
 	}
 
+	ClearSelection(stContext, !didRestore);
 	if (didRestore)
 	{
 		await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Failed to Restore messages. Refreshing the page is recommended.");
@@ -1255,7 +1279,6 @@ async function RestoreCommand(namedArgs, unnamedArgs)
 
 	stContext.activateSendButtons();
 	ilsInstance.operationLock = false;
-	ClearSelection(stContext);
 
 	return "";
 }
