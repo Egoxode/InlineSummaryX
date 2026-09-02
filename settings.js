@@ -8,7 +8,6 @@ const kDefaultSettings = Object.freeze({
 	midPrompt: "",
 	endPrompt: "",
 	historicalContexDepth: -1,
-	historicalContextDepth: -1,
 	historicalContextStartMarker: "<Historical_Context>",
 	historicalContextEndMarker: "</Historical_Context>",
 	summariseStartMarker: "<Content_To_Summarise>",
@@ -81,32 +80,7 @@ export async function LoadSettings(stContext)
 		activeSettings = rootSettings.spData[settingPresetName];
 	}
 
-	let defaultsJson = {};
-	const defaultsUrls = [
-		kDefaultsFile,
-		new URL("defaults.json", import.meta.url).href,
-		"scripts/extensions/third-party/InlineSummary/defaults.json",
-		"scripts/extensions/third-party/InlineSummary_by_ego/defaults.json",
-	];
-	for (const url of defaultsUrls)
-	{
-		try
-		{
-			const loaded = await $.get(url);
-			defaultsJson = (typeof loaded === "string") ? JSON.parse(loaded) : loaded;
-			if (defaultsJson?.defaultPrompt)
-				break;
-		}
-		catch
-		{
-			defaultsJson = {};
-		}
-	}
-	if (!Object.hasOwn(activeSettings, "historicalContextDepth") && Object.hasOwn(activeSettings, "historicalContexDepth"))
-		activeSettings.historicalContextDepth = activeSettings.historicalContexDepth;
-	if (Object.hasOwn(activeSettings, "historicalContextDepth"))
-		activeSettings.historicalContexDepth = activeSettings.historicalContextDepth;
-
+	const defaultsJson = await $.get(kDefaultsFile);
 	for (const settingKey of Object.keys(kDefaultSettings))
 	{
 		if (Object.hasOwn(activeSettings, settingKey))
@@ -170,9 +144,7 @@ export function OnSettingChanged(event)
 		case "ils_setting_hist_ctx_depth":
 			{
 				const parsed = parseInt(val, 10);
-				const depth = Number.isNaN(parsed) ? -1 : parsed;
-				gSettings.historicalContextDepth = depth;
-				gSettings.historicalContexDepth = depth;
+				gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
 			}
 			break;
 		case "ils_setting_token_limit":
@@ -411,7 +383,7 @@ export async function UpdateSettingsUI()
 	const stContext = SillyTavern.getContext();
 	const ilsInstance = GetILSInstance();
 
-	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContextDepth ?? gSettings.historicalContexDepth);
+	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
 	$("#ils_setting_hist_ctx_end").val(gSettings.historicalContextEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);

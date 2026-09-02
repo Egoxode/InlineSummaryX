@@ -13,21 +13,34 @@ import { extractReasoningFromData } from '../../../../scripts/reasoning.js';
 import { sendOpenAIRequest } from '../../../../scripts/openai.js';
 import { amount_gen, createRawPrompt } from "../../../../script.js";
 import { generateTextGenWithStreaming, getTextGenGenerationData } from '../../../../scripts/textgen-settings.js';
+
+/*
 import
 {
 	generateKoboldWithStreaming,
-	getKoboldGenerationData,
 	kai_settings,
+	loadKoboldSettings,
+	getKoboldGenerationData,
 	kai_flags,
+	koboldai_settings,
+	koboldai_setting_names,
+	initKoboldSettings,
 } from '../../../../scripts/kai-settings.js';
+
 import
 {
 	generateNovelWithStreaming,
 	getNovelGenerationData,
+	getKayraMaxContextTokens,
+	loadNovelSettings,
 	nai_settings,
+	adjustNovelInstructionPrompt,
+	parseNovelAILogprobs,
 	novelai_settings,
 	novelai_setting_names,
-} from '../../../../scripts/nai-settings.js';
+	initNovelAISettings,
+} from './scripts/nai-settings.js';
+ */
 
 import
 {
@@ -36,39 +49,6 @@ import
 	GetMessageByIndex,
 	SafeJsonStringify,
 } from './common.js';
-
-function SpeakerName(msg)
-{
-	const name = String(msg?.name ?? "").trim();
-	if (name)
-		return name;
-	return msg?.is_user ? "User" : "Assistant";
-}
-
-function ToPromptMessage(msg, text, prefixName)
-{
-	const name = SpeakerName(msg);
-	const role = msg.is_user ? "user" : "assistant";
-	return {
-		content: prefixName ? `${name}: ${text}` : text,
-		role,
-		name,
-	};
-}
-
-export function CancelGenerate()
-{
-	const ilsInstance = GetILSInstance();
-	ilsInstance.cancelRequested = true;
-	try
-	{
-		ilsInstance.abortCtrl?.abort();
-	}
-	catch (e)
-	{
-		console.warn("[ILS] Abort failed", e);
-	}
-}
 
 // =========================
 // Summary Generation Main
@@ -137,9 +117,8 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 			if (msgText.length > 0)
 			{
-				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
-				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(promptPiece.content);
-				summariseMsg.push(promptPiece);
+				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(msgText);
+				summariseMsg.push({ content: msgText, role: msg.is_user ? "user" : "assistant" });
 			}
 		}
 	}
@@ -164,10 +143,9 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 	let historicContex = "";
 	let histContextStart = 0;
-	const histDepth = Number(ilsSettings.historicalContextDepth ?? ilsSettings.historicalContexDepth ?? -1);
-	if (histDepth >= 0)
+	if (ilsSettings.historicalContexDepth >= 0)
 	{
-		histContextStart = msgIndex - histDepth;
+		histContextStart = msgIndex - ilsSettings.historicalContexDepth;
 		if (histContextStart < 0)
 			histContextStart = 0;
 	}
@@ -190,15 +168,15 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 			if (msgText.length > 0)
 			{
-				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
-				const tokenCost = await stContext.getTokenCountAsync(promptPiece.content);
+				const tokenCost = await stContext.getTokenCountAsync(msgText);
 				if ((remainingSize - tokenCost) > 0)
 				{
 					histContextTokenCount += tokenCost;
 					remainingSize -= tokenCost;
-					historicContex = promptPiece.content + historicContex;
-					historicalMsg.unshift(promptPiece);
+					historicContex = msgText + historicContex;
+					historicalMsg.unshift({ content: msgText, role: msg.is_user ? "user" : "assistant" });
 				}
+				// Context too full
 				else
 				{
 					break;
@@ -230,8 +208,6 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 	let errText = "";
 	let oldMaxTokens = 0;
 	let abortCtrl = new AbortController();
-	ilsInstance.abortCtrl = abortCtrl;
-	ilsInstance.cancelRequested = false;
 
 	try
 	{
@@ -245,7 +221,7 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 			}
 
 			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
-			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl, {});
+			queryFuture = sendOpenAIRequest("normal", promptMsg, null, {});
 		}
 		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
 		{
@@ -254,34 +230,36 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 			let promptParams = await getTextGenGenerationData(rawPrompt, (responseTokenLimit > 0) ? responseTokenLimit : amount_gen, false, false, null, "normal");
 			queryFuture = generateTextGenWithStreaming(promptParams, abortCtrl.signal);
 		}
-		else if ((stContext.mainApi == "kobold" || stContext.mainApi == "koboldhorde") && kai_settings.streaming_kobold && kai_flags.can_use_streaming)
+		// For other APIs, code taken from various ST scripts, incomplete and untested.
+		// Not sure how generateData maps to what generateKoboldWithStreaming/generateNovelWithStreaming expect
+		/*else if ((stContext.mainApi == "kobold" || stContext.mainApi == "koboldhorde") && kai_settings.streaming_kobold)
 		{
-			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
-			const generateData = getKoboldGenerationData(
-				rawPrompt,
-				kai_settings,
-				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
-				stContext.maxContext,
-				stContext.mainApi == "koboldhorde",
-				"normal"
-			);
-			queryFuture = generateKoboldWithStreaming(generateData, abortCtrl.signal);
+			/*
+			if (kai_settings.preset_settings === 'gui')
+			{
+				generateData = { prompt: prompt, gui_settings: true, max_length: amount_gen, max_context_length: max_context, api_server: kai_settings.api_server };
+			}
+			else
+			{
+				const isHorde = api === 'koboldhorde';
+				const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
+				generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, amount_gen, max_context, isHorde, 'quiet');
+			}
+			* /
+
+			let promptParams = null;
+			queryFuture = generateKoboldWithStreaming(promptParams, abortCtrl.signal);
 		}
-		else if (stContext.mainApi == "novel" && nai_settings.streaming_novel)
+		else if (stContext.mainApi == "novel" && novelai_settings.streaming_novel)
 		{
-			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
-			const novelSettings = novelai_settings?.[novelai_setting_names?.[nai_settings.preset_settings_novel]] || nai_settings;
-			const generateData = getNovelGenerationData(
-				rawPrompt,
-				novelSettings,
-				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
-				false,
-				false,
-				null,
-				"normal"
-			);
-			queryFuture = generateNovelWithStreaming(generateData, abortCtrl.signal);
-		}
+			/*
+			const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
+			generateData = getNovelGenerationData(prompt, novelSettings, amount_gen, false, false, null, 'quiet');
+			* /
+
+			let promptParams = null;
+			queryFuture = generateNovelWithStreaming(promptParams, streamingProcessor.abortController.signal);
+		}*/
 		else
 		{
 			let promptParams = { prompt: promptMsg.map(msg => msg.content).join("\n") };
@@ -310,24 +288,15 @@ export async function FinishGenerate(stContext, genStart)
 	let response = null;
 	let isOk = genStart.isOk;
 
-	const ilsInstance = GetILSInstance();
-
 	try
 	{
-		if (ilsInstance.cancelRequested)
-			throw new DOMException("Summary cancelled", "AbortError");
-
 		response = await genStart.generateQuery;
-		if (ilsInstance.cancelRequested)
-			throw new DOMException("Summary cancelled", "AbortError");
-
 		if (typeof response === 'function') // Streaming Request
 		{
 			let latestData = {};
+			// Copied from another ST script, no idea how this actually is suppoed to work, but just updating till the loop exits seems to work.
 			for await (const chunk of response())
 			{
-				if (ilsInstance.cancelRequested)
-					throw new DOMException("Summary cancelled", "AbortError");
 				latestData = chunk;
 			}
 			responseText = latestData?.text ?? "";
@@ -341,12 +310,6 @@ export async function FinishGenerate(stContext, genStart)
 	}
 	catch (e)
 	{
-		const cancelled = ilsInstance.cancelRequested || e?.name === "AbortError";
-		if (cancelled)
-		{
-			return { mainMsg: "", reasoning: null, isOk: false, cancelled: true };
-		}
-
 		console.error("[ILS] Failed to get response from LLM");
 		responseText = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nException:\n" + e;
 		if (useNewGenerate)
@@ -360,5 +323,5 @@ export async function FinishGenerate(stContext, genStart)
 		stContext.chatCompletionSettings.openai_max_tokens = genStart.maxResponseTokens;
 	}
 
-	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk, cancelled: false };
+	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk };
 }

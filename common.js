@@ -5,23 +5,9 @@
 // =========================
 
 export const kExtensionName = "InlineSummary";
-
-function ResolveExtensionBaseUrl()
-{
-	try
-	{
-		return new URL("./", import.meta.url).href;
-	}
-	catch
-	{
-		return `scripts/extensions/third-party/${kExtensionName}/`;
-	}
-}
-
-export const kExtensionBaseUrl = ResolveExtensionBaseUrl();
-export const kExtensionFolderPath = kExtensionBaseUrl;
-export const kSettingsFile = new URL("settings.html", kExtensionBaseUrl).href;
-export const kDefaultsFile = new URL("defaults.json", kExtensionBaseUrl).href;
+export const kExtensionFolderPath = `scripts/extensions/third-party/${kExtensionName}`;
+export const kSettingsFile = `${kExtensionFolderPath}/settings.html`;
+export const kDefaultsFile = `${kExtensionFolderPath}/defaults.json`;
 export const kExtraDataKey = "ILS_Data";
 export const kOriginalMessagesKey = "OriginalMessages";
 export const kMessageEstimatedTokenCountKey = "EstimatedTokens";
@@ -117,31 +103,33 @@ export function GetMessageByIndex(msgIndex, stContext)
 
 export function GetContextSize(stContext)
 {
-	const apiMode = String(stContext.mainApi ?? "").toLowerCase();
-	const cc = stContext.chatCompletionSettings || {};
+	const apiMode = stContext.mainApi?.toLowerCase();
 
-	let ctxSize = 0;
-	let reservedSize = 0;
+	let ctxOk = false; // Success
+	let ctxSize = 0; // Total context size
+	let reservedSize = 0; // Reserved for reply
 
-	if (apiMode === "openai")
+	switch (apiMode)
 	{
-		ctxSize = Number(cc.openai_max_context) || Number(stContext.maxContext) || 0;
-		reservedSize = Number(cc.openai_max_tokens) || Number(amount_gen) || 0;
-	}
-	else
-	{
-		ctxSize = Number(stContext.maxContext) || Number(cc.openai_max_context) || 0;
-		reservedSize = Number(amount_gen) || Number(cc.openai_max_tokens) || 0;
+		case "textgenerationwebui":
+		case "novel":
+		case "koboldhorde":
+		case "kobold":
+			ctxOk = true;
+			ctxSize = stContext.maxContext;
+			reservedSize = amount_gen;
+			break;
+
+		case "openai":
+			ctxOk = true;
+			ctxSize = stContext.chatCompletionSettings.openai_max_context;
+			reservedSize = stContext.chatCompletionSettings.openai_max_tokens;
+			break;
+
+		default:
+			ShowError("Unsupported Mode: '" + stContext.mainApi + "'.");
+			break;
 	}
 
-	if (!(ctxSize > 0))
-	{
-		ShowError("Could not read context size for API '" + stContext.mainApi + "'.");
-		return [false, 0, 0];
-	}
-
-	if (!(reservedSize > 0))
-		reservedSize = 0;
-
-	return [true, ctxSize, reservedSize];
+	return [ctxOk, ctxSize, reservedSize];
 }
