@@ -5,7 +5,7 @@
 	"optional": [],
 	"js": "index.js",
 	"css": "style.css",
-	"version": "1.2.8",
+	"version": "1.2.9",
     "minimum_client_version": "1.10.0",
 	"hooks": {
 		"delete": "onDelete",

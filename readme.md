@@ -4,7 +4,7 @@ Personal fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSumm
 
 - Upstream: https://github.com/Kristyku/InlineSummary
 - This fork: https://github.com/Egoxode/InlineSummary_by_ego
-- Fork version: **1.2.8** (based on upstream 1.2.2)
+- Fork version: **1.2.9** (based on upstream 1.2.2)
 
 Select a range of chat messages and replace it with a single summary message. Originals are stored inside the summary and can be restored at any time.
 
@@ -24,6 +24,8 @@ Select a range of chat messages and replace it with a single summary message. Or
 ### New
 - Speaker names are included in the summary prompt.
 - AI generation finishes before the range is removed. Cancel from the toast or ST Stop; originals stay if you cancel or the model fails.
+- `/ils-linear` and `/ils-stack` require confirmation before rewriting the chat.
+- After a summary the chat is redrawn with `printMessages` instead of a full reload when ST allows it.
 
 - `/ils-restore all` (also `*`) expands **every** summary in the current chat, including nested ones.
 - Settings button **Restore all originals in this chat** does the same, with a confirmation prompt.

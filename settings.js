@@ -8,6 +8,7 @@ const kDefaultSettings = Object.freeze({
 	midPrompt: "",
 	endPrompt: "",
 	historicalContexDepth: -1,
+	historicalContextDepth: -1,
 	historicalContextStartMarker: "<Historical_Context>",
 	historicalContextEndMarker: "</Historical_Context>",
 	summariseStartMarker: "<Content_To_Summarise>",
@@ -101,6 +102,11 @@ export async function LoadSettings(stContext)
 			defaultsJson = {};
 		}
 	}
+	if (!Object.hasOwn(activeSettings, "historicalContextDepth") && Object.hasOwn(activeSettings, "historicalContexDepth"))
+		activeSettings.historicalContextDepth = activeSettings.historicalContexDepth;
+	if (Object.hasOwn(activeSettings, "historicalContextDepth"))
+		activeSettings.historicalContexDepth = activeSettings.historicalContextDepth;
+
 	for (const settingKey of Object.keys(kDefaultSettings))
 	{
 		if (Object.hasOwn(activeSettings, settingKey))
@@ -164,7 +170,9 @@ export function OnSettingChanged(event)
 		case "ils_setting_hist_ctx_depth":
 			{
 				const parsed = parseInt(val, 10);
-				gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
+				const depth = Number.isNaN(parsed) ? -1 : parsed;
+				gSettings.historicalContextDepth = depth;
+				gSettings.historicalContexDepth = depth;
 			}
 			break;
 		case "ils_setting_token_limit":
@@ -403,7 +411,7 @@ export async function UpdateSettingsUI()
 	const stContext = SillyTavern.getContext();
 	const ilsInstance = GetILSInstance();
 
-	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
+	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContextDepth ?? gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
 	$("#ils_setting_hist_ctx_end").val(gSettings.historicalContextEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);
