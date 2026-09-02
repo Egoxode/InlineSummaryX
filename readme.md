@@ -1,146 +1,133 @@
-# Inline Summary — a SillyTavern Extension
+# InlineSummary by ego
 
-## AI Disclaimer
-The code for this extension was AI-generated, then manually edited and refactored so the final result is around 60% AI.<br>
-I'm a C++ programmer, and this is my first time touching JavaScript, hence the vibecoding.<br>
+Personal fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary) for SillyTavern.
 
-## What does it do?
-This is a simple Summary/Memory extension. It allows you to select a range of messages in chat and summarise them using an LLM or manually. It then replaces the selected range of chat messages with a single summary chat message, which acts as a typical chat message, therefore giving an 'Inline Summary'.<br>
-The original messages are stored away and hidden, but can be restored at any time.<br>
+Оригинал: https://github.com/Kristyku/InlineSummary  
+Этот форк: https://github.com/Egoxode/InlineSummary_by_ego  
+Версия форка: **1.2.6** (база upstream 1.2.2)
 
-## Usage
-#### Making a new Summary
-Select a **Start** and an **End** message using the two Message Action buttons.<br>
-![Message buttons](images/usage1.png)<br>
-![Message buttons - start selected](images/usage2.png)<br>
-Then the options for **AI Summary** , **Manual Summary**, and **Clear Range** will appear.<br>
-![Message buttons - start and end selected](images/usage3.png)<br>
-Click the **AI Summary** button and wait for the AI to finish generating.<br>
-Alternatively click the **Manual Summary** button, then edit the inserted message and write a manual summary.<br>
+Расширение сжимает выбранный диапазон сообщений в одно саммари прямо в чате. Оригиналы сохраняются внутри саммари и их можно вернуть.
 
-#### Existing Summary
-Summary messages will contain an expandable header which contains the original messages. Click anywhere on the header (except the buttons) to expand it.<br>
-![Summary message example](images/usage4.png)<br>
-The **Restore Original and Delete Summary** button will detele the summary and restore the original messages.<br>
-The **Re-Summarise (AI)** will regenerate a new summary using the stored original messages.
+---
 
-#### Slash Commands
-`/ils-summarise manual=[true|false] x y` is avalable to generate a summary.<br>
-Usage: `x` and `y` are start and stop message indices, when `manual` is set to `true` inserts an placeholder summary message instead of using an AI (Same as the **Manual Summary** button).<br>
-##### Examples:
-* `/ils-summarise 1 10` - summarise messages 1 through 10 inclusive using AI.
-* `/ils-summarise manual=true 1 10` - add a placeholder summary for messages 1 through 10.
+## Что изменено относительно оригинала
 
-`/ils-restore x` restores original messages. Restoration happens in reverse order — newest summary first. Nested summaries are expanded too.<br>
-Usage: `x` is how many latest summaries to restore, or `all` to restore every summary in the current chat.<br>
-##### Examples:
-* `/ils-restore 5` - restores original messages from the 5 latest summaries.
-* `/ils-restore all` - restores every summary in the current chat.
+### Исправления
+- Счётчик токенов на сообщении-саммари снова показывается после вставки и reload (`extra.token_count` пишется ещё и в `swipe_info`).
+- Оценка токенов в блоке Original Messages читает `ILS_Data` (путь после v1.2), а не старый `extra.ILS_Data`.
+- Галочка **Restore legacy summary messages** теперь реально сохраняется.
+- Если первый save/reload после вырезания диапазона падает, оригиналы откатываются в чат.
+- Тосты отката Connection Profile / API Preset показывают предыдущее имя, а не имя саммари-профиля.
+- Поправлены опечатки в диалогах удаления и сброса пресета.
 
-#### Before uninstalling
-Original messages live inside the summary objects. If you delete the extension without restoring, chats keep only the summary text.<br>
-Run `/ils-restore all` (or the settings button **Restore all originals in this chat**) in every affected chat first.<br>
-On SillyTavern versions that support extension hooks, deleting or cleaning the extension will automatically restore originals in the **currently open** chat only.
+### Новые функции
+- `/ils-restore all` (также `*`) — разворачивает **все** саммари в текущем чате, включая вложенные.
+- Кнопка в настройках **Restore all originals in this chat** — то же самое, с подтверждением.
+- При удалении расширения или Clean extension data автоматически разворачивается **только открытый чат** (хуки `delete` / `clean`). Остальные чаты нужно пройти вручную.
 
-## Extension Events
-Inline Summary emits several events through SillyTavern's event system so other extensions or scripts can react to the summary workflow.
+### Упрощение настроек
+Убраны поля, которые дублировали основной промпт:
+- Summary Prompt Middle
+- Summary Prompt End
+- Content Start Marker
+- Content End Marker
 
-- `ILS_StartMsgSelected` - emitted when the summary start message is selected. Payload: `{ msgIndex }`
-- `ILS_EndMsgSelected` - emitted when the summary end message is selected. Payload: `{ msgIndex }`
-- `ILS_SelectionCleared` - emitted when the current selection is cleared. Payload: `{}`
-- `ILS_SummaryAdded` - emitted after a summary is created or regenerated. Payload: `{ msgIndex, originalMessages, isManual, isRegenerate }`
-- `ILS_RestoreOriginalsBegin` - emitted just before the original messages are restored. Payload: `{ msgIndex }`
-- `ILS_RestoreOriginalsEnd` - emitted after the restore operation completes. Payload: `{ msgIndex }`
+Инструкции пишутся в **Summary Prompt Start**. Маркеры исторического контекста оставлены — они обрамляют другой кусок текста.
 
-## How does it work?
-When a range is selected, the extension creates a new empty summary message and inserts it into the chat.<br>
-The selected messages are stored in the `extra` data field of the new summary message.<br>
-A summary prompt is generated by taking the main summary prompt and adding a specified number of earlier messages for context (or the entire history if the setting is `-1`). The context is wrapped with Start/End markers as defined in the settings.<br>
-The messages to be summarised are then added after the historical context.<br>
-This complete prompt is sent to the LLM using the current connection profile or a specific profile if the option is enabled.<br>
-Once the LLM is done, the contents of the summary message are replaced with the response. The chat is saved and refreshed.<br>
-When the **Restore** button is pressed, the summary message is deleted and the original messages are reinserted into the chat.<br>
+### UI
+- Кнопка восстановления оригиналов на всю ширину панели настроек.
 
-## Settings
-Settings in the Extension settings menu:
-| Setting | Meaning |
+---
+
+## Установка
+
+SillyTavern → **Extensions** → **Install Extension**:
+
+```
+https://github.com/Egoxode/InlineSummary_by_ego
+```
+
+Если раньше стоял оригинал KristyKu — удали его, чтобы не было двух копий, затем поставь этот форк. Обновление: кнопка **Update** у этого расширения.
+
+---
+
+## Использование
+
+1. На сообщениях нажми **Start** и **End**.
+2. Появятся **Summarise (AI)**, **Summarise (Manual)** и **Clear Selection**.
+3. AI-саммари заменяет диапазон одним сообщением. Оригиналы лежат внутри и открываются по шапке **Original Messages**.
+4. В шапке: восстановить оригиналы или перегенерировать саммари.
+
+![Message buttons](images/usage1.png)
+![Message buttons - start selected](images/usage2.png)
+![Message buttons - start and end selected](images/usage3.png)
+![Summary message example](images/usage4.png)
+
+Саммари можно редактировать как обычное сообщение. Вложенные саммари поддерживаются: при сжатии саммари в промпт идёт его текст, не спрятанные оригиналы.
+
+---
+
+## Slash-команды
+
+| Команда | Что делает |
 | :--- | :--- |
-| Setting Presets | Saved setting presets for the extension  |
-| Summary Prompt Start | Prompt text inserted at the start of the summary generation prompt |
-| Historical Context Size | Number of messages to include in the summary generation prompt. -1 for auto (it will try to fit as many as it can to fill the allowed context window. 0 for none) |
-| Historical Context Start Marker | Marker that indicates the start of the historical context |
-| Historical Context End Marker | Marker that indicates the end of the historical context |
-| Response Token Limit | Maximum summary length allowed in tokens, 0 to use value set in the preset |
-| Use specified Connection Profile | Use the connection profile selected in the dropdown for generating summaries |
-| Use specified API Preset | Use the API Preset selected in the dropdown for generating summaries |
-| Auto Scroll to summarised message | Whether or not automatically scroll chat to the summarised message, summary generation causes that to refresh, and SillyTavern's default behaviour is to scroll to tbe bottom |
-| Enable Regex when summarising messages | Run Regex on the prompt during summary generation |
-| Enable Regex on final summary | Run Regex on the summary after it has been generated |
-| Enable Multi Message Prompt | Uses multiple messages for the summary generation prompt. Otherwise all prompt text is merged into one user message. |
-| Summary message sender name | Summary messages can have custom sender name, it can either be: User, Character or Custom. If your preset includes name prefixes, using a custom name might hint LLM that specific message is a summary |
-| Restore legacy summary messages | Restores legacy summaries that were generated using Inline Summary versions before v1.2. This may slow down loading older chats and can be disabled once you've recovered all your older chats. |
+| `/ils-summarise 1 10` | Сжать сообщения 1–10 через AI |
+| `/ils-summarise manual=true 1 10` | Вставить ручное саммари-заглушку |
+| `/ils-restore 5` | Вернуть оригиналы из 5 последних саммари |
+| `/ils-restore all` | Вернуть оригиналы из **всех** саммари в этом чате |
 
-## FAQ
+Алиасы: `/ils`, `/ils-sum`, `/ils-undo`, `/ils-back`.
 
-_**Can I edit the summary?**_<br>
-Yes! They behave like any other message.
+Перед удалением расширения выполни `/ils-restore all` в каждом чате с саммари. Иначе после снятия расширения останутся только тексты саммари, а оригиналы останутся спрятанными в файле чата без UI.
 
-_**Can summary messages be summarised?**_<br>
-Yes. Nested summaries are supported. When summarising a summary message, the summary text will be used, **not** the original messages
+---
 
-_**What happens during chat exports?**_<br>
-If exported as JSON, the original messages will be in the file.<br>
-When exported as plain text, only the summary messages will be exported.
+## Настройки
 
-_**Are swipes supported on summary messages?**_<br>
-No. It shouldn’t break, but swipes will behave like regular message swipes without any awareness of the summary or the original messages attached to it.
+| Настройка | Смысл |
+| :--- | :--- |
+| Setting Presets | Пресеты настроек расширения |
+| Summary Prompt Start | Единственный текстовый промпт суммаризатора |
+| Historical Context Size | Сколько сообщений *до* диапазона дать как фон. `-1` — сколько влезет, `0` — без фона |
+| Historical Context Start / End Marker | Обёртка вокруг этого фона |
+| Response Token Limit | Потолок ответа. `0` — как в пресете ST |
+| Use specified Connection Profile | Другой профиль API только на время саммари |
+| Use specified API Preset | Другой пресет генерации только на время саммари |
+| Auto Scroll to summarised message | После генерации прыгать к саммари |
+| Enable Regex when summarising messages | Regex ST по сообщениям до запроса |
+| Enable Regex on final summary | Regex ST по готовому саммари |
+| Enable Multi Message Prompt | Промпт пачкой user/assistant, а не одной простынёй |
+| Summary message sender name | Имя автора саммари: User / Character / Custom |
+| Restore legacy summary messages | Разово починить чаты, сделанные до v1.2 |
+| Restore all originals in this chat | Полностью развернуть текущий чат |
 
-_**Is it compatible with extension X?**_<br>
-No idea. This extension directly manipulates chat and stores/restores messages without altering them. As long as other extensions are okay with that, it *should* be compatible — but no promises.
+---
 
-_**Can I select a specific Connection Profile/Chat Completion Preset for the summary?**_<br>
-Yes. Since v1.0.2<br>
-⚠ Warning: Any unsaved changes to `Connection Profile` or `API Presets` or `AI Reponse Template` will be lost during profile change.
+## События для других расширений
 
-_**How accurate is the token counter on Original Messages?**_<br>
-It uses SillyTavern's token counting function, which might be different from the actual model used. The stats are calculated during summary generation and cached. The token count that SillyTavern specifies for a message includes Reasoning tokens as well, while summary and chat history only use message text, therefore Original Messages specifically only count message text, which may not match actual model tokens perfectly, will still be more accurate than including reasoning.<br>
-For older chats before this feature was added, the token counts supplied by SillyTavern will be used.<br>
-In theory, if only models via Kobold API are used, the token counts should be accurate.
+- `ILS_StartMsgSelected` — `{ msgIndex }`
+- `ILS_EndMsgSelected` — `{ msgIndex }`
+- `ILS_SelectionCleared` — `{}`
+- `ILS_SummaryAdded` — `{ msgIndex, originalMessages, isManual, isRegenerate }`
+- `ILS_RestoreOriginalsBegin` — `{ msgIndex }`
+- `ILS_RestoreOriginalsEnd` — `{ msgIndex }`
 
-_**Has anyone actually asked these questions?**_<br>
-Yes, the Connection Profile one.
+---
 
-## Known Incompatibilities
+## English
 
-_**Chat Style - Document**_<br>
-This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
+Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary). Select a chat range, replace it with one summary message, keep originals inside the summary and restore them later.
 
-## Changelog
+**vs upstream 1.2.2:** token count display on summaries, correct Original Messages token cache path, legacy-recovery checkbox actually saves, rollback originals if the first save after splice fails, `/ils-restore all`, uninstall hook flattens the *currently open* chat only, removed Mid/End prompt and Content markers (use the main prompt), full-width restore button.
 
-#### v1.2.6
-Removed Summary Prompt Middle, Summary Prompt End, and Content Start/End Marker settings.
+Install URL: `https://github.com/Egoxode/InlineSummary_by_ego`
 
-#### v1.2.4
-Added `/ils-restore all` and a settings button to restore every summary in the current chat.<br>
-Deleting or cleaning the extension now restores originals in the currently open chat.
+Before uninstalling, run `/ils-restore all` in every chat that still has summaries.
 
-#### v1.2.3
-Fixed summary message token counts not appearing after insert/reload.<br>
-Fixed Original Messages token estimates using the old storage path.<br>
-Fixed the legacy-recovery checkbox not saving, save-failure rollback, and profile-restore error text.
+---
 
-#### v1.2.2
-Added event hooks for selection, summary creation, and restore actions so other extensions can respond to the summary workflow.
+## License
 
-#### v1.2.1
-Added an option to use multiple messages as the summary prompt. This should make the prompt respect the "Character Names Behavior" setting.
-
-#### v1.2.0
-Fixed original message data being duplicated in the saved chat files leading to file size bloat. A recovery step will run when loading old chats to remove duplicates and move data where it won't get duplicated (can be disabled in options).<br>
-Added some error checking to improve rare but critical scenarios where SillyTavern might fail saving chat.
-
-#### v1.1.9
-Streaming support for Text Completion API. It uses the setting from the preset and will allow larger reply sizes for certain LLM providers.
-
-### Previous Changes
-See `changelog.md`
+Same terms as the upstream project. See `license.md`.
+Original author: KristyKu.
+Fork changes: Egoxode / ego.
