@@ -1605,20 +1605,46 @@ jQuery(async () =>
 
 	await LoadSettings(stContext);
 
-	// Setup Settings Menu
-	const settingsHtml = await $.get(kSettingsFile);
+	// Setup Settings Menu. Load from this module's folder so GitHub installs
+	// named InlineSummary_by_ego still find settings.html.
+	const settingsUrls = [
+		kSettingsFile,
+		new URL("settings.html", import.meta.url).href,
+		"scripts/extensions/third-party/InlineSummary/settings.html",
+		"scripts/extensions/third-party/InlineSummary_by_ego/settings.html",
+	];
 
-	const $extensions = $("#extensions_settings");
-	const $existing = $extensions.find(".inline-summary-settings");
-	if ($existing.length > 0)
-		$existing.replaceWith(settingsHtml);
+	let settingsHtml = "";
+	for (const url of settingsUrls)
+	{
+		try
+		{
+			settingsHtml = await $.get(url);
+			if (settingsHtml)
+				break;
+		}
+		catch
+		{
+			settingsHtml = "";
+		}
+	}
+
+	if (settingsHtml)
+	{
+		const $extensions = $("#extensions_settings");
+		const $existing = $extensions.find(".inline-summary-settings");
+		if ($existing.length > 0)
+			$existing.replaceWith(settingsHtml);
+		else
+			$extensions.append(settingsHtml);
+
+		await UpdateSettingsUI();
+		SetupOnSettingChangeEvents();
+	}
 	else
-		$extensions.append(settingsHtml);
-
-	// Fill In setting values
-	await UpdateSettingsUI();
-
-	SetupOnSettingChangeEvents();
+	{
+		ShowError("Could not load settings.html. Message buttons still work.");
+	}
 
 	// Message Action Buttons
 	const templateContainer = document.querySelector("#message_template .mes_buttons .extraMesButtons");
