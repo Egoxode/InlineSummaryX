@@ -58,11 +58,6 @@ If you already have the KristyKu original installed, remove it first so you do n
 3. An AI summary replaces the range with one message. Originals stay inside and open from the **Original Messages** header.
 4. From that header you can restore originals or regenerate the summary.
 
-![Message buttons](images/usage1.png)
-![Message buttons - start selected](images/usage2.png)
-![Message buttons - start and end selected](images/usage3.png)
-![Summary message example](images/usage4.png)
-
 Summaries are normal editable messages. Nested summaries are supported: when a summary is summarised again, the prompt uses the summary text, not the hidden originals.
 
 ---
