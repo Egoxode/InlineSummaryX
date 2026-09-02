@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.3.5
+The Original Messages header also shows the token count of the summary message itself.
+
 #### v1.3.4
 Removed the unused experimental commands `/ils-linear` and `/ils-stack`.
 

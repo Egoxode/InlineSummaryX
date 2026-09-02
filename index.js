@@ -1370,7 +1370,19 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 		else
 			origTokens += Math.ceil(String(msg?.mes || "").length / 4);
 	}
-	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens`;
+
+	const summaryText = String(msgObject.mes || "").trim();
+	const storedSummaryTokens = Number(msgObject.extra?.token_count);
+	let summaryTokenLabel = "…";
+	if (summaryText && summaryText !== "Generating...")
+	{
+		if (Number.isFinite(storedSummaryTokens) && storedSummaryTokens > 0)
+			summaryTokenLabel = String(storedSummaryTokens);
+		else
+			summaryTokenLabel = "~" + Math.ceil(summaryText.length / 4);
+	}
+
+	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens | summary ${summaryTokenLabel} tokens`;
 
 	const expandIcon = document.createElement("div");
 	expandIcon.className = "ils_expand_icon mes_button fa-solid fa-caret-right";

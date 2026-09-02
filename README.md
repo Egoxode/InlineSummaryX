@@ -8,7 +8,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egohox/InlineSummary_by_ego |
-| Version | **1.3.4** (from upstream 1.2.2) |
+| Version | **1.3.5** (from upstream 1.2.2) |
 
 ---
 
@@ -45,7 +45,7 @@ If generation is cancelled or fails, the `Generating...` message stays and the e
 
 Every summary has an **Original Messages** header.
 
-- Click the header (not the buttons) to expand or collapse the stored originals.
+- Click the header (not the buttons) to expand or collapse the stored originals. The header shows how many original messages are stored, their token estimate, and the token count of the summary itself.
 - **Restore Original and Delete Summary** puts the originals back and removes the summary.
 - **Re-Summarise (AI)** generates a new summary from the stored originals.
 
