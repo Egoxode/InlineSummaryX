@@ -522,52 +522,22 @@ function ShowGeneratingToast()
 	);
 }
 
-function HideGeneratingPlaceholder()
+function AttachSpinnerToMessage(msgIndex)
 {
-	document.getElementById("ils_generating_placeholder")?.remove();
-	document.querySelectorAll(".mes.ils_generating_hidden").forEach((el) =>
-	{
-		el.classList.remove("ils_generating_hidden");
-	});
-}
-
-function ShowGeneratingPlaceholder(startIndex, endIndex)
-{
-	HideGeneratingPlaceholder();
-
-	for (let i = startIndex; i <= endIndex; ++i)
-	{
-		const mes = document.querySelector(`.mes[mesid="${i}"]`);
-		if (mes)
-			mes.classList.add("ils_generating_hidden");
-	}
-
-	const anchor = document.querySelector(`.mes[mesid="${endIndex}"]`)
-		|| document.querySelector(`.mes[mesid="${startIndex}"]`);
-	if (!anchor)
+	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
+	if (!summaryMsgElement)
 		return;
 
-	const placeholder = document.createElement("div");
-	placeholder.id = "ils_generating_placeholder";
-	placeholder.className = "mes ils_generating_placeholder";
-	placeholder.setAttribute("mesid", String(startIndex));
-	placeholder.innerHTML = `
-		<div class="mes_block">
-			<div class="ch_name">Summary</div>
-			<div class="mes_text"></div>
-		</div>
-	`;
-	const textEl = placeholder.querySelector(".mes_text");
-	textEl.appendChild(MakeSpinner());
-	const hint = document.createElement("div");
-	hint.className = "ils_generating_hint";
-	hint.textContent = "Generating summary… Click here or press Stop to cancel.";
-	textEl.appendChild(hint);
-	placeholder.addEventListener("click", () => CancelGenerate());
+	const reasoningElement = summaryMsgElement.querySelector(".mes_reasoning_details");
+	if (reasoningElement)
+		reasoningElement.remove();
 
-	anchor.after(placeholder);
-	if (gSettings.autoScroll)
-		placeholder.scrollIntoView({ block: "center", behavior: "smooth" });
+	const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+	if (mesTextElement)
+	{
+		mesTextElement.innerHTML = "";
+		mesTextElement.appendChild(MakeSpinner());
+	}
 }
 
 async function GenerateSummaryAI()
@@ -602,49 +572,56 @@ async function GenerateSummaryAI()
 			return false;
 		}
 
-		ShowGeneratingPlaceholder(selection.start, selection.end);
-		ShowGeneratingToast();
+		// Start the request, then immediately replace the range with a Generating... message
 		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
-		const genResponse = await FinishGenerate(stContext, genStart);
-		HideGeneratingToast();
-
-		if (genResponse.cancelled || ilsInstance.cancelRequested)
-		{
-			toastr.info("[ILS] Summary cancelled. Chat was not changed.");
-			return false;
-		}
-
-		if (!genResponse.isOk)
-		{
-			ShowError("Summary generation failed. Original messages were left in place.");
-			return false;
-		}
 
 		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
-		await PopulateSummaryMessage(stContext, newSummaryMsg, genResponse.mainMsg, genResponse.reasoning);
-
 		stContext.chat.splice(selection.start, originalMessages.length);
 		stContext.chat.splice(selection.start, 0, newSummaryMsg);
 		inserted = true;
 
-		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: false, isRegenerate: false });
-		ClearSelection(stContext, false);
-
-		const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
-		if (!chatReload)
+		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.");
+		if (!chatReload1)
 		{
+			await FinishGenerate(stContext, genStart);
 			try { RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start); }
 			catch (e) { ShowError("Failed to roll back original messages after a save error.", e); }
 			return false;
 		}
 
-		BringIntoView(selection.start);
-		return true;
+		await BringIntoView(selection.start);
+		AttachSpinnerToMessage(selection.start);
+		ShowGeneratingToast();
+
+		const genResponse = await FinishGenerate(stContext, genStart);
+		HideGeneratingToast();
+
+		stContext = SillyTavern.getContext();
+		const summarySlot = selection.start;
+
+		if (genResponse.cancelled || ilsInstance.cancelRequested)
+		{
+			RestoreOriginalsInPlace(stContext, summarySlot);
+			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat after cancelling the summary.");
+			toastr.info("[ILS] Summary cancelled. Original messages restored.");
+			ClearSelection(stContext, false);
+			inserted = false;
+			return false;
+		}
+
+		await PopulateSummaryMessage(stContext, stContext.chat[summarySlot], genResponse.mainMsg, genResponse.reasoning);
+		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: summarySlot, originalMessages: originalMessages, isManual: false, isRegenerate: false });
+		ClearSelection(stContext, false);
+
+		const chatReload2 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
+		if (chatReload2)
+			BringIntoView(summarySlot);
+
+		return genResponse.isOk && chatReload2;
 	}
 	finally
 	{
 		HideGeneratingToast();
-		HideGeneratingPlaceholder();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
 		ilsInstance.operationLock = false;
@@ -728,26 +705,21 @@ async function RegenerateSummary(msgIndex)
 			return;
 		}
 
-		ShowGeneratingPlaceholder(msgIndex, msgIndex);
-		ShowGeneratingToast();
 		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+		summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
+		AttachSpinnerToMessage(msgIndex);
+		ShowGeneratingToast();
+
 		const genResponse = await FinishGenerate(stContext, genStart);
 		HideGeneratingToast();
-		HideGeneratingPlaceholder();
 
 		if (genResponse.cancelled || ilsInstance.cancelRequested)
 		{
+			await SaveAndReloadChat(stContext, "Failed to reload chat after cancelling re-summarise.");
 			toastr.info("[ILS] Re-summarise cancelled. Existing summary was kept.");
 			return;
 		}
 
-		if (!genResponse.isOk)
-		{
-			ShowError("Re-summarise failed. Existing summary was kept.");
-			return;
-		}
-
-		summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 		await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
 		ApplyTokenCountToMessageDom(
 			document.querySelector(`.mes[mesid="${msgIndex}"]`),
@@ -760,7 +732,6 @@ async function RegenerateSummary(msgIndex)
 	finally
 	{
 		HideGeneratingToast();
-		HideGeneratingPlaceholder();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
 		ilsInstance.operationLock = false;

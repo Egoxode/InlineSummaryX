@@ -6,7 +6,7 @@ This repository is a fork of [Kristyku/InlineSummary](https://github.com/Kristyk
 
 - Upstream: https://github.com/Kristyku/InlineSummary
 - Fork: https://github.com/Egohox/InlineSummary_by_ego
-- Version: **1.3.0** (based on upstream 1.2.2)
+- Version: **1.3.1** (based on upstream 1.2.2)
 
 ---
 
@@ -45,7 +45,7 @@ The install folder may be named `InlineSummary_by_ego` or `InlineSummary`. Setti
 1. Open the message actions on the first message of the range and click **Select Summary Start**.
 2. Open the last message of the range and click **Select Summary End**.
 3. **Summarise (AI)**, **Summarise (Manual)**, and **Clear Selection** appear on messages inside the range.
-4. **Summarise (AI)** builds a prompt and calls the current (or configured) connection. **Summarise (Manual)** inserts an editable placeholder.
+4. **Summarise (AI)** replaces the range with a `Generating...` message right away (originals are stored on it), then writes the model output into that same message. **Summarise (Manual)** inserts an editable placeholder instead.
 
 ### Existing summary
 
@@ -151,7 +151,7 @@ Other extensions can subscribe on SillyTavern's event bus:
 - `/ils-restore all` and a settings button that fully expands the current chat.
 - `delete` / `clean` hooks restore the open chat before the extension is removed.
 - Mid prompt, end prompt, and content start/end markers removed. Instructions live in the main prompt.
-- Generation runs before the range is replaced; cancel or failure leaves originals in place.
+- Cancel during generation restores the originals from the in-chat `Generating...` placeholder.
 - Speaker names are included in the summary prompt.
 - Settings load from the installed folder URL (`InlineSummary_by_ego` installs work).
 - Fixes: token display after reload, Original Messages token path after v1.2, legacy-recovery checkbox, rollback if the first save fails, profile-restore error text.

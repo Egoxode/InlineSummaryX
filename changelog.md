@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.3.1
+Restored the original generation flow: the selected range is replaced with a `Generating...` summary immediately, originals live on that message, and the model output is written into it.
+
 #### v1.3.0
 Public fork release as **InlineSummary_by_ego**.<br>
 Dropped leftover Mid/End prompt and Content Marker keys from the settings defaults.<br>
