@@ -522,6 +522,17 @@ function ShowGeneratingToast()
 	);
 }
 
+function SummaryAbortText(genResponse)
+{
+	if (genResponse?.cancelled)
+		return "[Summary cancelled]\nOriginal messages are stored in this summary. Use Restore Original to put them back.";
+
+	if (genResponse?.mainMsg)
+		return genResponse.mainMsg;
+
+	return "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for the full error message.";
+}
+
 function AttachSpinnerToMessage(msgIndex)
 {
 	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
@@ -599,17 +610,19 @@ async function GenerateSummaryAI()
 		stContext = SillyTavern.getContext();
 		const summarySlot = selection.start;
 
-		if (genResponse.cancelled || ilsInstance.cancelRequested)
+		const aborted = !!(genResponse.cancelled || ilsInstance.cancelRequested || !genResponse.isOk);
+		if (aborted && gSettings.restoreOriginalsOnAbort)
 		{
 			RestoreOriginalsInPlace(stContext, summarySlot);
-			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat after cancelling the summary.");
-			toastr.info("[ILS] Summary cancelled. Original messages restored.");
+			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat after aborting the summary.");
+			toastr.info("[ILS] Summary aborted. Original messages restored.");
 			ClearSelection(stContext, false);
 			inserted = false;
 			return false;
 		}
 
-		await PopulateSummaryMessage(stContext, stContext.chat[summarySlot], genResponse.mainMsg, genResponse.reasoning);
+		const bodyText = aborted ? SummaryAbortText(genResponse) : genResponse.mainMsg;
+		await PopulateSummaryMessage(stContext, stContext.chat[summarySlot], bodyText, aborted ? null : genResponse.reasoning);
 		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: summarySlot, originalMessages: originalMessages, isManual: false, isRegenerate: false });
 		ClearSelection(stContext, false);
 
@@ -713,14 +726,16 @@ async function RegenerateSummary(msgIndex)
 		const genResponse = await FinishGenerate(stContext, genStart);
 		HideGeneratingToast();
 
-		if (genResponse.cancelled || ilsInstance.cancelRequested)
+		const aborted = !!(genResponse.cancelled || ilsInstance.cancelRequested || !genResponse.isOk);
+		if (aborted && gSettings.restoreOriginalsOnAbort)
 		{
-			await SaveAndReloadChat(stContext, "Failed to reload chat after cancelling re-summarise.");
-			toastr.info("[ILS] Re-summarise cancelled. Existing summary was kept.");
+			await SaveAndReloadChat(stContext, "Failed to reload chat after aborting re-summarise.");
+			toastr.info("[ILS] Re-summarise aborted. Existing summary was kept.");
 			return;
 		}
 
-		await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
+		const bodyText = aborted ? SummaryAbortText(genResponse) : genResponse.mainMsg;
+		await PopulateSummaryMessage(stContext, summaryMsg, bodyText, aborted ? null : genResponse.reasoning);
 		ApplyTokenCountToMessageDom(
 			document.querySelector(`.mes[mesid="${msgIndex}"]`),
 			summaryMsg?.extra?.token_count);

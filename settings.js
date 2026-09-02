@@ -15,6 +15,7 @@ const kDefaultSettings = Object.freeze({
 	useDifferentApiPreset: false,
 	apiPresets: {},
 	autoScroll: true,
+	restoreOriginalsOnAbort: false,
 	regexPreGenerate: false,
 	regexPostGenerate: false,
 	useMultiMessage: false,
@@ -204,6 +205,9 @@ export function OnSettingChanged(event)
 			break;
 		case "ils_setting_auto_scroll":
 			gSettings.autoScroll = event.target.checked;
+			break;
+		case "ils_setting_restore_originals_on_abort":
+			gSettings.restoreOriginalsOnAbort = event.target.checked;
 			break;
 		case "ils_setting_enable_regex_pre_generate":
 			gSettings.regexPreGenerate = event.target.checked;
@@ -414,6 +418,7 @@ export async function UpdateSettingsUI()
 	$("#ils_setting_token_limit").val(gSettings.tokenLimit);
 	$("#ils_setting_smr_name_custom_val").val(gSettings.summaryName);
 	$("#ils_setting_auto_scroll").prop("checked", gSettings.autoScroll);
+	$("#ils_setting_restore_originals_on_abort").prop("checked", !!gSettings.restoreOriginalsOnAbort);
 	$("#ils_setting_enable_regex_pre_generate").prop("checked", gSettings.regexPreGenerate);
 	$("#ils_setting_enable_regex_post_generate").prop("checked", gSettings.regexPostGenerate);
 	$("#ils_setting_enable_multi_msg_prompt").prop("checked", gSettings.useMultiMessage);
@@ -605,6 +610,7 @@ export function SetupOnSettingChangeEvents()
 	$("#ils_setting_smr_name_mode_char").on("change", OnSettingChanged);
 	$("#ils_setting_smr_name_mode_custom").on("change", OnSettingChanged);
 	$("#ils_setting_auto_scroll").on("change", OnSettingChanged);
+	$("#ils_setting_restore_originals_on_abort").on("change", OnSettingChanged);
 	$("#ils_setting_enable_regex_pre_generate").on("change", OnSettingChanged);
 	$("#ils_setting_enable_regex_post_generate").on("change", OnSettingChanged);
 	$("#ils_setting_enable_multi_msg_prompt").on("change", OnSettingChanged);

@@ -1,5 +1,9 @@
 # Full Changelog
 
+#### v1.3.2
+Cancel and failed generation write the error into the `Generating...` placeholder by default (upstream behaviour).<br>
+New setting **Restore originals if summary generation is cancelled or fails** switches back to unpacking the range instead.
+
 #### v1.3.1
 Restored the original generation flow: the selected range is replaced with a `Generating...` summary immediately, originals live on that message, and the model output is written into it.
 

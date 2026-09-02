@@ -6,7 +6,7 @@ This repository is a fork of [Kristyku/InlineSummary](https://github.com/Kristyk
 
 - Upstream: https://github.com/Kristyku/InlineSummary
 - Fork: https://github.com/Egohox/InlineSummary_by_ego
-- Version: **1.3.1** (based on upstream 1.2.2)
+- Version: **1.3.2** (based on upstream 1.2.2)
 
 ---
 
@@ -100,6 +100,7 @@ Summaries are normal chat messages. If you delete the extension without restorin
 | Use specified Connection Profile | Switch connection profile only while summarising |
 | Use specified API Preset | Switch generation preset only while summarising |
 | Auto Scroll to summarised message | Jump to the summary after generation |
+| Restore originals if summary generation is cancelled or fails | Off (default): keep the placeholder and write the error / cancel text into it. On: put the original messages back |
 | Enable Regex when summarising messages | Run SillyTavern Regex on source messages before the request |
 | Enable Regex on final summary | Run SillyTavern Regex on the finished summary |
 | Enable Multi Message Prompt | Send the prompt as user/assistant turns instead of one blob |
