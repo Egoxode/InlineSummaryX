@@ -45,7 +45,7 @@ If generation is cancelled or fails, the `Generating...` message stays and the e
 
 Every summary has an **Original Messages** header.
 
-- Click the header (not the buttons) to expand or collapse the stored originals. The header shows how many original messages are stored, their token estimate, and the token count of the summary itself.
+- Click the header (not the buttons) to expand or collapse the stored originals. Token counts are estimates, for example: `Original Messages: 8/8 used | ~1540 tokens | Summary: ~212 tokens`. While the summary is still generating, the last number is `…`.
 - **Restore Original and Delete Summary** puts the originals back and removes the summary.
 - **Re-Summarise (AI)** generates a new summary from the stored originals.
 
@@ -150,6 +150,7 @@ Other extensions can listen on SillyTavern's event bus:
 - Mid prompt, end prompt, and content start/end markers removed. Instructions live in the main prompt.
 - `Generating...` is inserted immediately; the model output (or the error text) is written into that same message.
 - Optional restore-on-abort checkbox.
+- Original Messages header also shows an estimate of the summary's own tokens.
 - Speaker names are included in the summary prompt.
 - Settings load from the installed folder URL.
 - Fixes from the fork: token display after reload, Original Messages token path after v1.2, legacy-recovery checkbox actually saves, rollback if the first save fails, profile-restore error text.
