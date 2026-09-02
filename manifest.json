@@ -6,7 +6,7 @@
 	"js": "index.js",
 	"css": "style.css",
 	"author": "ego (fork of KristyKu/InlineSummary)",
-	"version": "1.3.2",
+	"version": "1.3.4",
 	"homePage": "https://github.com/Egohox/InlineSummary_by_ego",
 	"auto_update": true,
 	"minimum_client_version": "1.10.0",

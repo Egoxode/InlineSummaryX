@@ -566,7 +566,7 @@ export async function UpdateSettingsUI()
 					}
 					break;
 				default:
-					ShowError("Unknow API Mode: " + apiMode);
+					ShowError("Unknown API Mode: " + apiMode);
 					break
 			}
 

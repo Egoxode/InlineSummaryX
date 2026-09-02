@@ -1,5 +1,15 @@
 # Full Changelog
 
+#### v1.3.4
+Removed the unused experimental commands `/ils-linear` and `/ils-stack`.
+
+#### v1.3.3
+Delete/clean now also rewrites other saved character and group chats that still contain stored originals, not only the open chat.<br>
+Summary messages seed swipe slots so a swipe no longer drops the Original Messages header.<br>
+`/ils-linear` and `/ils-stack` default to manual placeholders (`manual=false` to call the model).<br>
+Settings warn that swapping a connection profile or API preset discards unsaved ST preset edits.<br>
+Original Messages token estimate no longer includes reasoning tokens on old chats.
+
 #### v1.3.2
 Cancel and failed generation write the error into the `Generating...` placeholder by default (upstream behaviour).<br>
 New setting **Restore originals if summary generation is cancelled or fails** switches back to unpacking the range instead.

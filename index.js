@@ -30,7 +30,6 @@ import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default
 import { timestampToMoment } from '../../../../scripts/utils.js';
 import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
 import { power_user } from '../../../../scripts/power-user.js';
-import { Popup } from '../../../../scripts/popup.js';
 import { getRegexedString, regex_placement } from "../../../extensions/regex/engine.js";
 
 import
@@ -327,24 +326,243 @@ async function RestoreSummaries(count, { save = true, reload = true } = {})
 	return restored;
 }
 
+function StripJsonl(name)
+{
+	return String(name || "").replace(/\.jsonl$/i, "");
+}
+
+function ChatHasSummaryPayload(list)
+{
+	if (!Array.isArray(list))
+		return false;
+	for (const item of list)
+	{
+		if (HasOriginalMessages(item))
+			return true;
+		const nested = item?.[kExtraDataKey]?.[kOriginalMessagesKey];
+		if (ChatHasSummaryPayload(nested))
+			return true;
+	}
+	return false;
+}
+
+function FlattenMessageList(list)
+{
+	if (!Array.isArray(list))
+		return [];
+
+	const out = [];
+	for (const item of list)
+	{
+		if (HasOriginalMessages(item))
+			out.push(...FlattenMessageList(item[kExtraDataKey][kOriginalMessagesKey]));
+		else
+			out.push(item);
+	}
+	return out;
+}
+
+async function IlsPostJson(stContext, url, body)
+{
+	const res = await fetch(url, {
+		method: "POST",
+		headers: stContext.getRequestHeaders(),
+		body: JSON.stringify(body),
+	});
+	if (!res.ok)
+		throw new Error(url + " HTTP " + res.status);
+	return res.json();
+}
+
+function AsChatArray(data)
+{
+	if (Array.isArray(data))
+		return data;
+	if (Array.isArray(data?.chat))
+		return data.chat;
+	return null;
+}
+
+async function FlattenSavedCharacterChat(stContext, avatarUrl, fileName)
+{
+	const file = StripJsonl(fileName);
+	if (!avatarUrl || !file)
+		return false;
+
+	const raw = await IlsPostJson(stContext, "/api/chats/get", { avatar_url: avatarUrl, file_name: file });
+	const messages = AsChatArray(raw);
+	if (!ChatHasSummaryPayload(messages))
+		return false;
+
+	await IlsPostJson(stContext, "/api/chats/save", {
+		avatar_url: avatarUrl,
+		file_name: file,
+		chat: FlattenMessageList(messages),
+		force: true,
+	});
+	return true;
+}
+
+async function FlattenSavedGroupChat(stContext, groupChatId)
+{
+	const id = StripJsonl(groupChatId);
+	if (!id)
+		return false;
+
+	const raw = await IlsPostJson(stContext, "/api/chats/group/get", { id });
+	const messages = AsChatArray(raw);
+	if (!ChatHasSummaryPayload(messages))
+		return false;
+
+	await IlsPostJson(stContext, "/api/chats/group/save", {
+		id,
+		chat: FlattenMessageList(messages),
+		force: true,
+	});
+	return true;
+}
+
+async function CollectChatTargets(stContext)
+{
+	const seen = new Set();
+	const targets = [];
+
+	const addChar = (avatar, file) =>
+	{
+		const key = "c:" + avatar + ":" + StripJsonl(file);
+		if (!avatar || !file || seen.has(key))
+			return;
+		seen.add(key);
+		targets.push({ type: "char", avatar, file: StripJsonl(file) });
+	};
+	const addGroup = (id) =>
+	{
+		const key = "g:" + StripJsonl(id);
+		if (!id || seen.has(key))
+			return;
+		seen.add(key);
+		targets.push({ type: "group", id: StripJsonl(id) });
+	};
+
+	try
+	{
+		const recent = await IlsPostJson(stContext, "/api/chats/recent", { max: 1000 });
+		if (Array.isArray(recent))
+		{
+			for (const row of recent)
+			{
+				if (row?.group)
+					addGroup(row.file_name || row.group);
+				else if (row?.avatar)
+					addChar(row.avatar, row.file_name);
+			}
+		}
+	}
+	catch (e)
+	{
+		console.warn("[ILS] Could not list recent chats", e);
+	}
+
+	for (const ch of stContext.characters || [])
+	{
+		if (!ch?.avatar)
+			continue;
+		if (ch.chat)
+			addChar(ch.avatar, ch.chat);
+		try
+		{
+			const listed = await IlsPostJson(stContext, "/api/characters/chats", { avatar_url: ch.avatar, simple: true });
+			const files = Array.isArray(listed) ? listed : [];
+			for (const row of files)
+				addChar(ch.avatar, row?.file_name || row);
+		}
+		catch
+		{
+			// character may have no chat folder
+		}
+	}
+
+	for (const group of stContext.groups || [])
+	{
+		if (group?.id)
+			addGroup(group.chat_id || group.id);
+		if (Array.isArray(group?.chats))
+		{
+			for (const id of group.chats)
+				addGroup(id);
+		}
+	}
+
+	return targets;
+}
+
+async function FlattenOtherChatsOnDisk(stContext)
+{
+	let rewritten = 0;
+	const currentAvatar = stContext.characters?.[stContext.characterId]?.avatar || "";
+	const currentChatId = String(stContext.chatId || "");
+	const currentGroup = stContext.groupId || "";
+
+	const targets = await CollectChatTargets(stContext);
+	for (const target of targets)
+	{
+		try
+		{
+			if (target.type === "group")
+			{
+				if (currentGroup && (target.id === currentGroup || target.id === currentChatId))
+					continue;
+				if (await FlattenSavedGroupChat(stContext, target.id))
+					rewritten++;
+			}
+			else
+			{
+				if (!currentGroup && target.avatar === currentAvatar && target.file === StripJsonl(currentChatId))
+					continue;
+				if (await FlattenSavedCharacterChat(stContext, target.avatar, target.file))
+					rewritten++;
+			}
+		}
+		catch (e)
+		{
+			console.warn("[ILS] Failed to flatten saved chat", target, e);
+		}
+	}
+
+	return rewritten;
+}
+
 async function FlattenCurrentChatForUninstall(reason)
 {
 	try
 	{
 		const stContext = SillyTavern.getContext();
-		if (!Array.isArray(stContext.chat) || FindLastSummaryIndex(stContext) < 0)
-			return 0;
+		let restored = 0;
+		if (Array.isArray(stContext.chat) && FindLastSummaryIndex(stContext) >= 0)
+			restored = await RestoreSummaries(Infinity, { save: true, reload: false });
 
-		const restored = await RestoreSummaries(Infinity, { save: true, reload: false });
-		if (restored > 0)
+		let others = 0;
+		try
 		{
-			toastr.warning("[ILS] Restored originals from " + restored + " summaries in the current chat before extension " + reason + ". Other chats still contain summaries — open each one and run /ils-restore all if needed.");
+			others = await FlattenOtherChatsOnDisk(SillyTavern.getContext());
 		}
-		return restored;
+		catch (e)
+		{
+			console.warn("[ILS] Could not flatten other chats on " + reason, e);
+		}
+
+		if (restored > 0 || others > 0)
+		{
+			toastr.warning(
+				"[ILS] Unpacked " + restored + " summar" + (restored === 1 ? "y" : "ies") +
+				" in the open chat and rewrote " + others + " other chat file(s) before extension " + reason + "."
+			);
+		}
+		return restored + others;
 	}
 	catch (e)
 	{
-		console.error("[ILS] Failed to flatten chat on " + reason, e);
+		console.error("[ILS] Failed to flatten chats on " + reason, e);
 		return 0;
 	}
 }
@@ -492,6 +710,18 @@ async function PopulateSummaryMessage(stContext, summaryMsg, msgText, msgReasoni
 
 	const tokenText = String(extra.reasoning || "") + String(summaryMsg.mes || "");
 	WriteExtraTokenCount(summaryMsg, await stContext.getTokenCountAsync(tokenText));
+
+	if (!Array.isArray(summaryMsg.swipes) || summaryMsg.swipes.length === 0)
+	{
+		summaryMsg.swipes = [summaryMsg.mes];
+		summaryMsg.swipe_id = 0;
+	}
+	else
+	{
+		const swipeId = Number.isInteger(summaryMsg.swipe_id) ? summaryMsg.swipe_id : 0;
+		summaryMsg.swipes[swipeId] = summaryMsg.mes;
+	}
+	summaryMsg.swipe_info ??= [];
 }
 
 function HideGeneratingToast()
@@ -1135,8 +1365,10 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 
 		const tokenCache = GetOriginalMessagesTokenCache(msgObject);
 		const cachedTokenCount = tokenCache ? tokenCache[i] : null;
-		// token_count does include reasoning, which we do not summarise, so only use it on chats where we do our own maths.
-		origTokens += Number((cachedTokenCount == null) ? (msg?.extra?.token_count ?? 0) : cachedTokenCount) || 0;
+		if (cachedTokenCount != null)
+			origTokens += Number(cachedTokenCount) || 0;
+		else
+			origTokens += Math.ceil(String(msg?.mes || "").length / 4);
 	}
 	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens`;
 
@@ -1452,6 +1684,22 @@ async function OnMessageEdited(data)
 		await EnsureMessageTokenCount(msg, stContext);
 }
 
+function OnMessageSwiped(data)
+{
+	const msgIdx = Number(data?.messageId ?? data?.mesId ?? data);
+	if (!Number.isInteger(msgIdx) || msgIdx < 0)
+		return;
+
+	const stContext = SillyTavern.getContext();
+	const msg = GetMessageByIndex(msgIdx, stContext);
+	if (!HasOriginalMessages(msg))
+		return;
+
+	const node = document.querySelector(`.mes[mesid="${msgIdx}"]`);
+	if (node)
+		RefreshMessageElements(node, msgIdx);
+}
+
 // =========================
 // Slash Command Handling
 // =========================
@@ -1500,144 +1748,6 @@ async function RestoreCommand(namedArgs, unnamedArgs)
 		toastr.success("[ILS] Restored originals from " + restored + " summar" + (restored === 1 ? "y." : "ies."));
 
 	return String(restored);
-}
-
-async function ConfirmBulkSummarise(modeName, chunkSize, manualMode, namedArgs)
-{
-	if (String(namedArgs?.confirm).trim().toLowerCase() === "false")
-		return true;
-
-	return !!(await Popup.show.confirm(
-		"Inline Summary",
-		`This will repeatedly summarise the current chat in chunks of ${chunkSize} (${modeName}${manualMode ? ", manual" : ""}).<br>` +
-		`Most of the chat can be rewritten. Undo with <code>/ils-restore all</code>. Continue?`
-	));
-}
-
-async function Experiment1(namedArgs, unnamedArgs)
-{
-	const idParams = String(unnamedArgs).split(' ');
-	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
-
-	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
-	if (!await ConfirmBulkSummarise("linear", chunkSize, manualMode, namedArgs))
-		return "Cancelled.";
-
-	while (true)
-	{
-		const stContext = SillyTavern.getContext();
-		const selection = GetSelection(stContext);
-
-		let lastSummary = -1;
-		for (let i = stContext.chat.length - 1; i >= 0; --i)
-		{
-			if (HasOriginalMessages(stContext.chat[i]))
-			{
-				lastSummary = i;
-				break;
-			}
-		}
-
-		// Count summarisable messages, skipping over hidden messages
-		let summaryFrom = lastSummary + 1;
-		let summaryTo = summaryFrom;
-		let messageCount = 0;
-		for (let i = summaryFrom; (i < stContext.chat.length) && (messageCount < chunkSize); ++i)
-		{
-			if (!stContext.chat[i].is_system)
-				++messageCount;
-
-			summaryTo = i;
-		}
-
-		// Not Enough Messages
-		if (messageCount < chunkSize)
-			break;
-
-		// Count reamining messages, skipping over hidden messages
-		let remainingMessages = 0;
-		for (let i = summaryTo + 1; i < stContext.chat.length; ++i)
-		{
-			if (!stContext.chat[i].is_system)
-				++remainingMessages;
-		}
-
-		// Not Enough Messages
-		if (remainingMessages < chunkSize)
-			break;
-
-		selection.start = summaryFrom;
-		selection.end = summaryTo;
-
-		let isOk = true;
-		if (manualMode)
-			isOk = await GenerateSummaryManual();
-		else
-			isOk = await GenerateSummaryAI();
-
-		if (!isOk)
-			break;
-	}
-
-	return "";
-}
-
-async function Experiment2(namedArgs, unnamedArgs)
-{
-	const idParams = String(unnamedArgs).split(' ');
-	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
-
-	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
-	if (!await ConfirmBulkSummarise("stacked", chunkSize, manualMode, namedArgs))
-		return "Cancelled.";
-
-	while (true)
-	{
-		const stContext = SillyTavern.getContext();
-		const selection = GetSelection(stContext);
-
-		// Count summarisable messages, skipping over hidden messages
-		let summaryFrom = 0;
-		let summaryTo = summaryFrom;
-		let messageCount = 0;
-		for (let i = summaryFrom; (i < stContext.chat.length) && (messageCount < chunkSize); ++i)
-		{
-			if (!stContext.chat[i].is_system)
-				++messageCount;
-
-			summaryTo = i;
-		}
-
-		// Not Enough Messages
-		if (messageCount < chunkSize)
-			break;
-
-		// Count reamining messages, skipping over hidden messages
-		let remainingMessages = 0;
-		for (let i = summaryTo + 1; i < stContext.chat.length; ++i)
-		{
-			if (!stContext.chat[i].is_system)
-				++remainingMessages;
-		}
-
-		// Not Enough Messages
-		if (remainingMessages < chunkSize)
-			break;
-
-		selection.start = summaryFrom;
-		selection.end = summaryTo;
-
-		let isOk = true;
-		if (manualMode)
-			isOk = await GenerateSummaryManual();
-		else
-			isOk = await GenerateSummaryAI();
-
-		if (!isOk)
-			break;
-	}
-
-	return "";
 }
 
 // =========================
@@ -1751,8 +1861,9 @@ jQuery(async () =>
 		{ type: stContext.eventTypes.MORE_MESSAGES_LOADED, handler: OnMoreMsgLoaded },
 		{ type: stContext.eventTypes.MAIN_API_CHANGED, handler: OnMainApiChanged },
 		{ type: stContext.eventTypes.MESSAGE_EDITED, handler: OnMessageEdited },
+		{ type: stContext.eventTypes.MESSAGE_SWIPED, handler: OnMessageSwiped },
 		{ type: stContext.eventTypes.GENERATION_STOPPED, handler: () => { if (GetILSInstance().operationLock) CancelGenerate(); } },
-	];
+	].filter(entry => entry.type);
 
 	for (const { type, handler } of kEventsToRegister)
 	{
@@ -1826,82 +1937,6 @@ jQuery(async () =>
 			<strong>Examples:</strong>
 			<pre><code class="language-stscript">/ils-restore 3</code></pre>
 			<pre><code class="language-stscript">/ils-restore all</code></pre>
-		</div>
-		`
-	}));
-
-	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-linear",
-		aliases: ["ils-experimental-summarise-linear"],
-		callback: Experiment1,
-		namedArgumentList: [
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'manual',
-				description: 'Insert manual summary message instead of using AI.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'false',
-			}),
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'confirm',
-				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'true',
-			}),
-		],
-		unnamedArgumentList: [
-			stContext.SlashCommandArgument.fromProps({
-				description: 'Chunk size',
-				typeList: stContext.ARGUMENT_TYPE.NUMBER,
-				isRequired: true,
-			}),
-		],
-		helpString: `
-		<div>
-			Experimental: walk forward from the last summary and compress the chat in chunks. Asks for confirmation first.
-			Alias: <code>/ils-experimental-summarise-linear</code>
-		</div>
-		<div>
-			<strong>Examples:</strong>
-			<pre><code class="language-stscript">/ils-linear 10</code></pre>
-			<pre><code class="language-stscript">/ils-linear manual=true 10</code></pre>
-		</div>
-		`
-	}));
-
-	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-stack",
-		aliases: ["ils-experimental-summarise-stacked"],
-		callback: Experiment2,
-		namedArgumentList: [
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'manual',
-				description: 'Insert manual summary message instead of using AI.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'false',
-			}),
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'confirm',
-				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'true',
-			}),
-		],
-		unnamedArgumentList: [
-			stContext.SlashCommandArgument.fromProps({
-				description: 'Chunk size',
-				typeList: stContext.ARGUMENT_TYPE.NUMBER,
-				isRequired: true,
-			}),
-		],
-		helpString: `
-		<div>
-			Experimental: keep compressing from the start of the chat into stacked summaries. Asks for confirmation first.
-			Alias: <code>/ils-experimental-summarise-stacked</code>
-		</div>
-		<div>
-			<strong>Examples:</strong>
-			<pre><code class="language-stscript">/ils-stack 10</code></pre>
-			<pre><code class="language-stscript">/ils-stack manual=true 10</code></pre>
 		</div>
 		`
 	}));
