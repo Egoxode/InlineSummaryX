@@ -60,6 +60,7 @@ import
 	MakeSummaryPrompt,
 	StartGenerate,
 	FinishGenerate,
+	CancelGenerate,
 } from './generate.js'
 
 // =========================
@@ -1706,7 +1707,14 @@ jQuery(async () =>
 		{ type: stContext.eventTypes.MORE_MESSAGES_LOADED, handler: OnMoreMsgLoaded },
 		{ type: stContext.eventTypes.MAIN_API_CHANGED, handler: OnMainApiChanged },
 		{ type: stContext.eventTypes.MESSAGE_EDITED, handler: OnMessageEdited },
+		{ type: stContext.eventTypes.GENERATION_STOPPED, handler: () => { if (GetILSInstance().operationLock) CancelGenerate(); } },
 	];
+
+	document.getElementById("mes_stop")?.addEventListener("click", () =>
+	{
+		if (GetILSInstance().operationLock)
+			CancelGenerate();
+	});
 
 	for (const { type, handler } of kEventsToRegister)
 	{

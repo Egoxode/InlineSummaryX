@@ -3,7 +3,8 @@
 #### v1.2.6
 Removed Summary Prompt Middle, Summary Prompt End, and Content Start/End Marker. Instructions now live only in the main summary prompt.<br>
 Settings and defaults resolve from the installed folder, so GitHub installs as `InlineSummary_by_ego` show the Extensions drawer.<br>
-Removed usage screenshots and the `images` folder.
+Removed usage screenshots and the `images` folder.<br>
+Stop during AI summary aborts the request and writes the original failed-response text into the summary message.
 
 #### v1.2.4
 Added `/ils-restore all` (also `*`) to expand every summary in the current chat, including nested ones.<br>

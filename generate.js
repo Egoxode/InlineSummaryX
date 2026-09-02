@@ -50,6 +50,31 @@ import
 	SafeJsonStringify,
 } from './common.js';
 
+export function CancelGenerate()
+{
+	const ilsInstance = GetILSInstance();
+	ilsInstance.cancelRequested = true;
+	try
+	{
+		ilsInstance.abortCtrl?.abort();
+	}
+	catch (e)
+	{
+		console.warn("[ILS] Abort failed", e);
+	}
+
+	try
+	{
+		const stContext = SillyTavern.getContext();
+		if (typeof stContext.stopGeneration === "function")
+			stContext.stopGeneration();
+	}
+	catch
+	{
+		/* optional */
+	}
+}
+
 // =========================
 // Summary Generation Main
 // =========================
@@ -208,6 +233,8 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 	let errText = "";
 	let oldMaxTokens = 0;
 	let abortCtrl = new AbortController();
+	ilsInstance.abortCtrl = abortCtrl;
+	ilsInstance.cancelRequested = false;
 
 	try
 	{
@@ -220,8 +247,8 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 				stContext.chatCompletionSettings.openai_max_tokens = responseTokenLimit;
 			}
 
-			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
-			queryFuture = sendOpenAIRequest("normal", promptMsg, null, {});
+			// Same slot as upstream (abort controller). Passing null made Stop do nothing.
+			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl.signal, {});
 		}
 		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
 		{
@@ -262,7 +289,11 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 		}*/
 		else
 		{
-			let promptParams = { prompt: promptMsg.map(msg => msg.content).join("\n") };
+			let promptParams = {
+				prompt: promptMsg.map(msg => msg.content).join("\n"),
+				signal: abortCtrl.signal,
+				abortSignal: abortCtrl.signal,
+			};
 			if (responseTokenLimit > 0)
 				promptParams.responseLength = responseTokenLimit;
 
@@ -288,15 +319,24 @@ export async function FinishGenerate(stContext, genStart)
 	let response = null;
 	let isOk = genStart.isOk;
 
+	const ilsInstance = GetILSInstance();
+
 	try
 	{
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("The user stopped the request.", "AbortError");
+
 		response = await genStart.generateQuery;
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("The user stopped the request.", "AbortError");
+
 		if (typeof response === 'function') // Streaming Request
 		{
 			let latestData = {};
-			// Copied from another ST script, no idea how this actually is suppoed to work, but just updating till the loop exits seems to work.
 			for await (const chunk of response())
 			{
+				if (ilsInstance.cancelRequested)
+					throw new DOMException("The user stopped the request.", "AbortError");
 				latestData = chunk;
 			}
 			responseText = latestData?.text ?? "";
