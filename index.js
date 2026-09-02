@@ -1376,13 +1376,13 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	let summaryTokenLabel = "…";
 	if (summaryText && summaryText !== "Generating...")
 	{
-		if (Number.isFinite(storedSummaryTokens) && storedSummaryTokens > 0)
-			summaryTokenLabel = String(storedSummaryTokens);
-		else
-			summaryTokenLabel = "~" + Math.ceil(summaryText.length / 4);
+		const summaryTokens = (Number.isFinite(storedSummaryTokens) && storedSummaryTokens > 0)
+			? storedSummaryTokens
+			: Math.ceil(summaryText.length / 4);
+		summaryTokenLabel = "~" + summaryTokens;
 	}
 
-	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens | summary ${summaryTokenLabel} tokens`;
+	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens | Summary: ${summaryTokenLabel} tokens`;
 
 	const expandIcon = document.createElement("div");
 	expandIcon.className = "ils_expand_icon mes_button fa-solid fa-caret-right";
