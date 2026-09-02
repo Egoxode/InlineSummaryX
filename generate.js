@@ -1,0 +1,364 @@
+// SillyTavern - Inline Summary Extension - Summary Generation
+
+// =========================
+// Constants
+// =========================
+
+// =========================
+// Includes/API/Globals
+// =========================
+
+import { getRegexedString, regex_placement } from "../../../extensions/regex/engine.js";
+import { extractReasoningFromData } from '../../../../scripts/reasoning.js';
+import { sendOpenAIRequest } from '../../../../scripts/openai.js';
+import { amount_gen, createRawPrompt } from "../../../../script.js";
+import { generateTextGenWithStreaming, getTextGenGenerationData } from '../../../../scripts/textgen-settings.js';
+import
+{
+	generateKoboldWithStreaming,
+	getKoboldGenerationData,
+	kai_settings,
+	kai_flags,
+} from '../../../../scripts/kai-settings.js';
+import
+{
+	generateNovelWithStreaming,
+	getNovelGenerationData,
+	nai_settings,
+	novelai_settings,
+	novelai_setting_names,
+} from '../../../../scripts/nai-settings.js';
+
+import
+{
+	GetILSInstance,
+	GetContextSize,
+	GetMessageByIndex,
+	SafeJsonStringify,
+} from './common.js';
+
+function SpeakerName(msg)
+{
+	const name = String(msg?.name ?? "").trim();
+	if (name)
+		return name;
+	return msg?.is_user ? "User" : "Assistant";
+}
+
+function ToPromptMessage(msg, text, prefixName)
+{
+	const name = SpeakerName(msg);
+	const role = msg.is_user ? "user" : "assistant";
+	return {
+		content: prefixName ? `${name}: ${text}` : text,
+		role,
+		name,
+	};
+}
+
+export function CancelGenerate()
+{
+	const ilsInstance = GetILSInstance();
+	ilsInstance.cancelRequested = true;
+	try
+	{
+		ilsInstance.abortCtrl?.abort();
+	}
+	catch (e)
+	{
+		console.warn("[ILS] Abort failed", e);
+	}
+}
+
+// =========================
+// Summary Generation Main
+// =========================
+
+export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMessages, stContext, ilsSettings)
+{
+	const ilsInstance = GetILSInstance();
+
+	let [ctxOk, ctxSize, resSize] = GetContextSize(stContext);
+
+	if (!ctxOk)
+		return { promptOk: false, promptText: "", promptError: "Could not get context size." };
+
+	if (ilsSettings.tokenLimit > 0)
+		resSize = ilsSettings.tokenLimit;
+
+	const maxPromptSize = ctxSize - resSize;
+	let remainingSize = maxPromptSize;
+
+	// Generate Summary Prompt
+
+	// Add Main Prompt
+	const mainPromptMsg = {
+		content: ilsSettings.startPrompt + "\n" + ilsSettings.historicalContextStartMarker,
+		role: "user" };
+	const startPromptTokenCount = await stContext.getTokenCountAsync(mainPromptMsg.content);
+	remainingSize -= startPromptTokenCount;
+
+	// Close historical context (content markers / mid / end prompts were removed)
+	const histEndMsg = {
+		content: ilsSettings.historicalContextEndMarker,
+		role: "user" };
+	const histEndTokenCount = await stContext.getTokenCountAsync(histEndMsg.content);
+	remainingSize -= histEndTokenCount;
+
+	const instructionTokenTotal = startPromptTokenCount + histEndTokenCount;
+
+	// Check if Prompt fits
+	if (remainingSize < 0)
+		return {
+			promptOk: false,
+			promptText: "",
+			promptError: "Prompt instructions too big for context:\nReserved for reply: " + resSize
+				+ ";\nStart Prompt: " + startPromptTokenCount
+				+ ";\nHistory End Marker: " + histEndTokenCount
+				+ ";\nTotal: " + (resSize + instructionTokenTotal) + " of " + ctxSize + " context."
+		};
+
+	// - Content to Summarise
+	let summariseMsg = [];
+	let messagesToSummariseTokenCount = 0;
+
+	for (const [index, msg] of originalMessages.entries())
+	{
+		const localDepth = originalMessages.length - index - 1 + numMsgAfterSummary;
+		if (!msg.is_system)
+		{
+			let msgText = msg.mes.trim();
+			if (ilsInstance.regexEnabled && ilsSettings.regexPreGenerate)
+			{
+				msgText = getRegexedString(msgText,
+					msg.is_user ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT,
+					{ isPrompt: true, isEdit: false, depth: localDepth });
+			}
+
+			if (msgText.length > 0)
+			{
+				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
+				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(promptPiece.content);
+				summariseMsg.push(promptPiece);
+			}
+		}
+	}
+	if (summariseMsg.length == 0)
+		return { promptOk: false, promptText: "", promptError: "No messages to summarise. Are all messages in the selected range hidden or blank?" };
+
+	remainingSize -= messagesToSummariseTokenCount;
+
+	if (remainingSize < 0)
+		return {
+			promptOk: false,
+			promptText: "",
+			promptError: "Messages to summarise too big for context:\nReserved for reply: " + resSize
+				+ ";\nStart Prompt: " + startPromptTokenCount
+				+ ";\nHistory End Marker: " + histEndTokenCount
+				+ ";\nMessages to Summarise: " + messagesToSummariseTokenCount
+				+ ";\nTotal: " + (resSize + instructionTokenTotal + messagesToSummariseTokenCount) + " of " + ctxSize + " context."
+		};
+
+	// Historic Context
+	let historicalMsg = [];
+
+	let historicContex = "";
+	let histContextStart = 0;
+	const histDepth = Number(ilsSettings.historicalContextDepth ?? ilsSettings.historicalContexDepth ?? -1);
+	if (histDepth >= 0)
+	{
+		histContextStart = msgIndex - histDepth;
+		if (histContextStart < 0)
+			histContextStart = 0;
+	}
+
+	let histContextTokenCount = 0;
+	for (let i = msgIndex - 1; i >= histContextStart; --i)
+	{
+		const msg = GetMessageByIndex(i, stContext);
+
+		if (!msg.is_system)
+		{
+			let msgText = msg.mes.trim();
+			const localDepth = originalMessages.length + numMsgAfterSummary + (msgIndex - 1 - i);
+			if (ilsInstance.regexEnabled && ilsSettings.regexPreGenerate)
+			{
+				msgText = getRegexedString(msgText,
+					msg.is_user ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT,
+					{ isPrompt: true, isEdit: false, depth: localDepth });
+			}
+
+			if (msgText.length > 0)
+			{
+				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
+				const tokenCost = await stContext.getTokenCountAsync(promptPiece.content);
+				if ((remainingSize - tokenCost) > 0)
+				{
+					histContextTokenCount += tokenCost;
+					remainingSize -= tokenCost;
+					historicContex = promptPiece.content + historicContex;
+					historicalMsg.unshift(promptPiece);
+				}
+				else
+				{
+					break;
+				}
+			}
+		}
+	}
+
+	// Combine all parts
+	let summaryPromptMessages = [mainPromptMsg, ...historicalMsg, histEndMsg, ...summariseMsg];
+
+	// Finalize
+	if (!ilsSettings.useMultiMessage)
+	{
+		const singleStr = summaryPromptMessages.map(msg => msg.content).join("\n");
+		summaryPromptMessages = [{
+			content: singleStr,
+			role: "user" }]
+	}
+
+	return { promptOk: true, promptMsg: summaryPromptMessages, promptError: "" };
+}
+
+export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0)
+{
+	const ilsInstance = GetILSInstance();
+	let queryFuture = null;
+	let isOk = true;
+	let errText = "";
+	let oldMaxTokens = 0;
+	let abortCtrl = new AbortController();
+	ilsInstance.abortCtrl = abortCtrl;
+	ilsInstance.cancelRequested = false;
+
+	try
+	{
+		if (stContext.mainApi == "openai" && stContext.chatCompletionSettings.stream_openai)
+		{
+			// Save and overwrite token limit
+			if (responseTokenLimit > 0)
+			{
+				oldMaxTokens = stContext.chatCompletionSettings.openai_max_tokens;
+				stContext.chatCompletionSettings.openai_max_tokens = responseTokenLimit;
+			}
+
+			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
+			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl, {});
+		}
+		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
+		{
+			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
+
+			let promptParams = await getTextGenGenerationData(rawPrompt, (responseTokenLimit > 0) ? responseTokenLimit : amount_gen, false, false, null, "normal");
+			queryFuture = generateTextGenWithStreaming(promptParams, abortCtrl.signal);
+		}
+		else if ((stContext.mainApi == "kobold" || stContext.mainApi == "koboldhorde") && kai_settings.streaming_kobold && kai_flags.can_use_streaming)
+		{
+			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
+			const generateData = getKoboldGenerationData(
+				rawPrompt,
+				kai_settings,
+				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
+				stContext.maxContext,
+				stContext.mainApi == "koboldhorde",
+				"normal"
+			);
+			queryFuture = generateKoboldWithStreaming(generateData, abortCtrl.signal);
+		}
+		else if (stContext.mainApi == "novel" && nai_settings.streaming_novel)
+		{
+			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
+			const novelSettings = novelai_settings?.[novelai_setting_names?.[nai_settings.preset_settings_novel]] || nai_settings;
+			const generateData = getNovelGenerationData(
+				rawPrompt,
+				novelSettings,
+				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
+				false,
+				false,
+				null,
+				"normal"
+			);
+			queryFuture = generateNovelWithStreaming(generateData, abortCtrl.signal);
+		}
+		else
+		{
+			let promptParams = { prompt: promptMsg.map(msg => msg.content).join("\n") };
+			if (responseTokenLimit > 0)
+				promptParams.responseLength = responseTokenLimit;
+
+			const useNewGenerate = (typeof stContext.generateRawData === "function");
+			queryFuture = useNewGenerate ? stContext.generateRawData(promptParams) : stContext.generateRaw(promptParams);
+		}
+	}
+	catch (e)
+	{
+		console.error("[ILS] Failed to get response from LLM.\n" + e);
+		isOk = false;
+	}
+
+	return { generateQuery: queryFuture, isOk: isOk, errorText: errText, maxResponseTokens: oldMaxTokens, ac: abortCtrl };
+}
+
+export async function FinishGenerate(stContext, genStart)
+{
+	const useNewGenerate = (typeof stContext.generateRawData === "function");
+
+	let responseText = "";
+	let reasoningText = null;
+	let response = null;
+	let isOk = genStart.isOk;
+
+	const ilsInstance = GetILSInstance();
+
+	try
+	{
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("Summary cancelled", "AbortError");
+
+		response = await genStart.generateQuery;
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("Summary cancelled", "AbortError");
+
+		if (typeof response === 'function') // Streaming Request
+		{
+			let latestData = {};
+			for await (const chunk of response())
+			{
+				if (ilsInstance.cancelRequested)
+					throw new DOMException("Summary cancelled", "AbortError");
+				latestData = chunk;
+			}
+			responseText = latestData?.text ?? "";
+			reasoningText = latestData?.state?.reasoning ?? null;
+		}
+		else
+		{
+			responseText = useNewGenerate ? stContext.extractMessageFromData(response) : response;
+			reasoningText = useNewGenerate ? extractReasoningFromData(response) : null;
+		}
+	}
+	catch (e)
+	{
+		const cancelled = ilsInstance.cancelRequested || e?.name === "AbortError";
+		if (cancelled)
+		{
+			return { mainMsg: "", reasoning: null, isOk: false, cancelled: true };
+		}
+
+		console.error("[ILS] Failed to get response from LLM");
+		responseText = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nException:\n" + e;
+		if (useNewGenerate)
+			responseText += "\nRaw Response:\n" + SafeJsonStringify(response);
+		isOk = false;
+	}
+
+	// Restore token limit
+	if (stContext.mainApi == "openai" && genStart.maxResponseTokens > 0)
+	{
+		stContext.chatCompletionSettings.openai_max_tokens = genStart.maxResponseTokens;
+	}
+
+	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk, cancelled: false };
+}
