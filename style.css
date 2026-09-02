@@ -2,6 +2,22 @@
    InlineSummary - Styles
    =========================== */
 
+.mes.ils_generating_hidden {
+	display: none !important;
+}
+
+#ils_generating_placeholder,
+.mes.ils_generating_placeholder {
+	opacity: 0.92;
+	cursor: pointer;
+}
+
+.ils_generating_hint {
+	margin-top: 8px;
+	opacity: 0.8;
+	font-size: 0.9em;
+}
+
 /* Settings: full-width action button */
 .inline-summary-settings .ils_fullwidth_btn {
 	display: block;

@@ -1,5 +1,18 @@
 # Full Changelog
 
+#### v1.2.10
+While a summary is generating, the selected range is hidden and a Generating block is shown in chat. Cancel still leaves originals untouched.
+
+#### v1.2.9
+`/ils-linear` and `/ils-stack` ask for confirmation (`confirm=false` skips it).<br>
+Chat updates use `printMessages` instead of a full `reloadCurrentChat` when available.<br>
+Migrated `historicalContexDepth` to `historicalContextDepth` without resetting saved values.<br>
+Context size falls back to `maxContext` for APIs other than the original list.<br>
+Kobold and NovelAI streaming paths are wired when streaming is enabled.
+
+#### v1.2.8
+Removed usage screenshots and the `images` folder from the repo.
+
 #### v1.2.7
 Settings and defaults now load from the installed folder URL, so GitHub installs as `InlineSummary_by_ego` show the Extensions drawer.<br>
 Summary prompts include speaker names (prefixed in single-message mode, `name` field in multi-message mode).<br>

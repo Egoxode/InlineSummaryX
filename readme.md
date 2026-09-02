@@ -4,7 +4,7 @@ Personal fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSumm
 
 - Upstream: https://github.com/Kristyku/InlineSummary
 - This fork: https://github.com/Egoxode/InlineSummary_by_ego
-- Fork version: **1.2.7** (based on upstream 1.2.2)
+- Fork version: **1.2.10** (based on upstream 1.2.2)
 
 Select a range of chat messages and replace it with a single summary message. Originals are stored inside the summary and can be restored at any time.
 
@@ -24,6 +24,8 @@ Select a range of chat messages and replace it with a single summary message. Or
 ### New
 - Speaker names are included in the summary prompt.
 - AI generation finishes before the range is removed. Cancel from the toast or ST Stop; originals stay if you cancel or the model fails.
+- `/ils-linear` and `/ils-stack` require confirmation before rewriting the chat.
+- After a summary the chat is redrawn with `printMessages` instead of a full reload when ST allows it.
 
 - `/ils-restore all` (also `*`) expands **every** summary in the current chat, including nested ones.
 - Settings button **Restore all originals in this chat** does the same, with a confirmation prompt.
@@ -61,11 +63,6 @@ If you already have the KristyKu original installed, remove it first so you do n
 2. **Summarise (AI)**, **Summarise (Manual)**, and **Clear Selection** appear.
 3. An AI summary replaces the range with one message. Originals stay inside and open from the **Original Messages** header.
 4. From that header you can restore originals or regenerate the summary.
-
-![Message buttons](images/usage1.png)
-![Message buttons - start selected](images/usage2.png)
-![Message buttons - start and end selected](images/usage3.png)
-![Summary message example](images/usage4.png)
 
 Summaries are normal editable messages. Nested summaries are supported: when a summary is summarised again, the prompt uses the summary text, not the hidden originals.
 

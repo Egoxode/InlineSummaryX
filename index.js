@@ -26,10 +26,11 @@ const kDepthColours = [
 // Includes/API/Globals
 // =========================
 
-import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default_avatar } from "../../../../script.js";
+import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default_avatar, printMessages } from "../../../../script.js";
 import { timestampToMoment } from '../../../../scripts/utils.js';
 import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
 import { power_user } from '../../../../scripts/power-user.js';
+import { Popup } from '../../../../scripts/popup.js';
 import { getRegexedString, regex_placement } from "../../../extensions/regex/engine.js";
 
 import
@@ -91,7 +92,10 @@ async function SaveAndReloadChat(stContext, errorMsg = null)
 	try
 	{
 		await stContext.saveChat();
-		await stContext.reloadCurrentChat();
+		if (typeof printMessages === "function")
+			await printMessages();
+		else
+			await stContext.reloadCurrentChat();
 	}
 	catch (e)
 	{
@@ -518,6 +522,54 @@ function ShowGeneratingToast()
 	);
 }
 
+function HideGeneratingPlaceholder()
+{
+	document.getElementById("ils_generating_placeholder")?.remove();
+	document.querySelectorAll(".mes.ils_generating_hidden").forEach((el) =>
+	{
+		el.classList.remove("ils_generating_hidden");
+	});
+}
+
+function ShowGeneratingPlaceholder(startIndex, endIndex)
+{
+	HideGeneratingPlaceholder();
+
+	for (let i = startIndex; i <= endIndex; ++i)
+	{
+		const mes = document.querySelector(`.mes[mesid="${i}"]`);
+		if (mes)
+			mes.classList.add("ils_generating_hidden");
+	}
+
+	const anchor = document.querySelector(`.mes[mesid="${endIndex}"]`)
+		|| document.querySelector(`.mes[mesid="${startIndex}"]`);
+	if (!anchor)
+		return;
+
+	const placeholder = document.createElement("div");
+	placeholder.id = "ils_generating_placeholder";
+	placeholder.className = "mes ils_generating_placeholder";
+	placeholder.setAttribute("mesid", String(startIndex));
+	placeholder.innerHTML = `
+		<div class="mes_block">
+			<div class="ch_name">Summary</div>
+			<div class="mes_text"></div>
+		</div>
+	`;
+	const textEl = placeholder.querySelector(".mes_text");
+	textEl.appendChild(MakeSpinner());
+	const hint = document.createElement("div");
+	hint.className = "ils_generating_hint";
+	hint.textContent = "Generating summary… Click here or press Stop to cancel.";
+	textEl.appendChild(hint);
+	placeholder.addEventListener("click", () => CancelGenerate());
+
+	anchor.after(placeholder);
+	if (gSettings.autoScroll)
+		placeholder.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 async function GenerateSummaryAI()
 {
 	let stContext = SillyTavern.getContext();
@@ -550,6 +602,7 @@ async function GenerateSummaryAI()
 			return false;
 		}
 
+		ShowGeneratingPlaceholder(selection.start, selection.end);
 		ShowGeneratingToast();
 		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 		const genResponse = await FinishGenerate(stContext, genStart);
@@ -591,6 +644,7 @@ async function GenerateSummaryAI()
 	finally
 	{
 		HideGeneratingToast();
+		HideGeneratingPlaceholder();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
 		ilsInstance.operationLock = false;
@@ -674,10 +728,12 @@ async function RegenerateSummary(msgIndex)
 			return;
 		}
 
+		ShowGeneratingPlaceholder(msgIndex, msgIndex);
 		ShowGeneratingToast();
 		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 		const genResponse = await FinishGenerate(stContext, genStart);
 		HideGeneratingToast();
+		HideGeneratingPlaceholder();
 
 		if (genResponse.cancelled || ilsInstance.cancelRequested)
 		{
@@ -704,6 +760,7 @@ async function RegenerateSummary(msgIndex)
 	finally
 	{
 		HideGeneratingToast();
+		HideGeneratingPlaceholder();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
 		ilsInstance.operationLock = false;
@@ -1459,12 +1516,26 @@ async function RestoreCommand(namedArgs, unnamedArgs)
 	return String(restored);
 }
 
+async function ConfirmBulkSummarise(modeName, chunkSize, manualMode, namedArgs)
+{
+	if (String(namedArgs?.confirm).trim().toLowerCase() === "false")
+		return true;
+
+	return !!(await Popup.show.confirm(
+		"Inline Summary",
+		`This will repeatedly summarise the current chat in chunks of ${chunkSize} (${modeName}${manualMode ? ", manual" : ""}).<br>` +
+		`Most of the chat can be rewritten. Undo with <code>/ils-restore all</code>. Continue?`
+	));
+}
+
 async function Experiment1(namedArgs, unnamedArgs)
 {
 	const idParams = String(unnamedArgs).split(' ');
 	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
 
 	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
+	if (!await ConfirmBulkSummarise("linear", chunkSize, manualMode, namedArgs))
+		return "Cancelled.";
 
 	while (true)
 	{
@@ -1531,6 +1602,8 @@ async function Experiment2(namedArgs, unnamedArgs)
 	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
 
 	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
+	if (!await ConfirmBulkSummarise("stacked", chunkSize, manualMode, namedArgs))
+		return "Cancelled.";
 
 	while (true)
 	{
@@ -1782,6 +1855,12 @@ jQuery(async () =>
 				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
 				defaultValue: 'false',
 			}),
+			stContext.SlashCommandNamedArgument.fromProps({
+				name: 'confirm',
+				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
+				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
+				defaultValue: 'true',
+			}),
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
@@ -1792,7 +1871,7 @@ jQuery(async () =>
 		],
 		helpString: `
 		<div>
-			Experimental: walk forward from the last summary and compress the chat in chunks. Use at your own risk.
+			Experimental: walk forward from the last summary and compress the chat in chunks. Asks for confirmation first.
 			Alias: <code>/ils-experimental-summarise-linear</code>
 		</div>
 		<div>
@@ -1814,6 +1893,12 @@ jQuery(async () =>
 				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
 				defaultValue: 'false',
 			}),
+			stContext.SlashCommandNamedArgument.fromProps({
+				name: 'confirm',
+				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
+				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
+				defaultValue: 'true',
+			}),
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
@@ -1824,7 +1909,7 @@ jQuery(async () =>
 		],
 		helpString: `
 		<div>
-			Experimental: keep compressing from the start of the chat into stacked summaries. Use at your own risk.
+			Experimental: keep compressing from the start of the chat into stacked summaries. Asks for confirmation first.
 			Alias: <code>/ils-experimental-summarise-stacked</code>
 		</div>
 		<div>
