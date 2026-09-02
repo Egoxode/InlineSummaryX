@@ -1,5 +1,21 @@
 # Full Changelog
 
+#### v1.2.6
+Removed Summary Prompt Middle, Summary Prompt End, and Content Start/End Marker. Instructions now live only in the main summary prompt.
+
+#### v1.2.4
+Added `/ils-restore all` (also `*`) to expand every summary in the current chat, including nested ones.<br>
+Added a settings button to restore all originals in the current chat.<br>
+On delete/clean, the extension flattens the currently open chat so originals are not left trapped in summary messages. Other chats are unchanged — run `/ils-restore all` there first.
+
+#### v1.2.3
+Fixed summary messages not showing a token count in the chat header after insert/reload.<br>
+Fixed Original Messages token estimate reading the pre-v1.2 storage path (`extra.ILS_Data`) instead of `ILS_Data`.<br>
+Fixed the "Restore legacy summary messages" checkbox not actually saving.<br>
+Rolled back in-memory original messages if the first save/reload after creating a summary fails.<br>
+Fixed restore-profile/preset error toasts showing the summary profile name instead of the previous one.<br>
+Fixed typos in preset delete/reset confirmation dialogs.
+
 #### v1.2.2
 Added event hooks for selection, summary creation, and restore actions so other extensions can respond to the summary workflow.
 

@@ -2,6 +2,18 @@
    InlineSummary - Styles
    =========================== */
 
+/* Settings: full-width action button */
+.inline-summary-settings .ils_fullwidth_btn {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	text-align: center;
+	white-space: normal;
+	margin: 6px 0 0 0;
+	flex: 0 0 auto;
+}
+
 /* Container Root */
 .ils_messages_container_root {
 	margin: 4px 0;

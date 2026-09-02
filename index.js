@@ -180,6 +180,180 @@ function HasOriginalMessages(msgObject)
 	return msgObject && msgObject[kExtraDataKey] && Array.isArray(msgObject[kExtraDataKey][kOriginalMessagesKey]);
 }
 
+function GetIlsData(msgObject)
+{
+	if (!msgObject)
+		return null;
+	if (msgObject[kExtraDataKey])
+		return msgObject[kExtraDataKey];
+	if (msgObject.extra && msgObject.extra[kExtraDataKey])
+		return msgObject.extra[kExtraDataKey];
+	return null;
+}
+
+function GetOriginalMessagesTokenCache(msgObject)
+{
+	const cache = GetIlsData(msgObject)?.[kMessageEstimatedTokenCountKey];
+	return Array.isArray(cache) ? cache : null;
+}
+
+function EnsureMessageExtra(msgObject)
+{
+	if (!msgObject)
+		return {};
+
+	msgObject.extra ??= {};
+	return msgObject.extra;
+}
+
+function WriteExtraTokenCount(msgObject, tokenCount)
+{
+	if (!msgObject)
+		return;
+
+	const extra = EnsureMessageExtra(msgObject);
+	extra.token_count = tokenCount;
+
+	// ST may rehydrate extra from swipe_info on reload; keep both in sync
+	const swipeId = Number.isInteger(msgObject.swipe_id) ? msgObject.swipe_id : 0;
+	if (Array.isArray(msgObject.swipe_info) && msgObject.swipe_info[swipeId])
+	{
+		msgObject.swipe_info[swipeId].extra ??= {};
+		msgObject.swipe_info[swipeId].extra.token_count = tokenCount;
+	}
+}
+
+async function EnsureMessageTokenCount(msgObject, stContext)
+{
+	if (!msgObject || !stContext)
+		return 0;
+
+	const existing = Number(msgObject.extra?.token_count);
+	if (Number.isFinite(existing) && existing > 0)
+	{
+		WriteExtraTokenCount(msgObject, existing);
+		return existing;
+	}
+
+	const tokenText = String(msgObject.extra?.reasoning || "") + String(msgObject.mes || "");
+	const tokenCount = await stContext.getTokenCountAsync(tokenText);
+	WriteExtraTokenCount(msgObject, tokenCount);
+	return tokenCount;
+}
+
+function ApplyTokenCountToMessageDom(messageDiv, tokenCount)
+{
+	if (!messageDiv || !tokenCount)
+		return;
+
+	const tokenEl = messageDiv.querySelector(".tokenCounterDisplay");
+	if (tokenEl)
+		tokenEl.textContent = `${tokenCount}t`;
+}
+
+function RestoreOriginalsInPlace(stContext, msgIndex)
+{
+	const summaryMsg = GetMessageByIndex(msgIndex, stContext);
+	if (!HasOriginalMessages(summaryMsg))
+		return false;
+
+	const originals = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
+	stContext.chat.splice(msgIndex + 1, 0, ...originals);
+	stContext.chat.splice(msgIndex, 1);
+	return true;
+}
+
+function FindLastSummaryIndex(stContext)
+{
+	for (let i = stContext.chat.length - 1; i >= 0; --i)
+	{
+		if (HasOriginalMessages(stContext.chat[i]))
+			return i;
+	}
+	return -1;
+}
+
+async function RestoreSummaries(count, { save = true, reload = true } = {})
+{
+	const stContext = SillyTavern.getContext();
+	const ilsInstance = GetILSInstance();
+	if (ilsInstance.operationLock)
+		return 0;
+
+	const limit = count === Infinity ? Number.POSITIVE_INFINITY : Math.max(0, Number(count) || 0);
+	if (limit === 0)
+		return 0;
+
+	ilsInstance.operationLock = true;
+	stContext.deactivateSendButtons();
+
+	let restored = 0;
+	try
+	{
+		while (restored < limit)
+		{
+			const lastSummary = FindLastSummaryIndex(stContext);
+			if (lastSummary < 0)
+				break;
+
+			await stContext.eventSource.emit("ILS_RestoreOriginalsBegin", { msgIndex: lastSummary });
+			if (!RestoreOriginalsInPlace(stContext, lastSummary))
+				break;
+			restored++;
+			await stContext.eventSource.emit("ILS_RestoreOriginalsEnd", { msgIndex: lastSummary });
+		}
+
+		ClearSelection(stContext, restored === 0);
+
+		if (restored > 0 && save)
+		{
+			if (reload)
+				await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Failed to Restore messages. Refreshing the page is recommended.");
+			else
+				await stContext.saveChat();
+		}
+	}
+	finally
+	{
+		stContext.activateSendButtons();
+		ilsInstance.operationLock = false;
+	}
+
+	return restored;
+}
+
+async function FlattenCurrentChatForUninstall(reason)
+{
+	try
+	{
+		const stContext = SillyTavern.getContext();
+		if (!Array.isArray(stContext.chat) || FindLastSummaryIndex(stContext) < 0)
+			return 0;
+
+		const restored = await RestoreSummaries(Infinity, { save: true, reload: false });
+		if (restored > 0)
+		{
+			toastr.warning("[ILS] Restored originals from " + restored + " summaries in the current chat before extension " + reason + ". Other chats still contain summaries — open each one and run /ils-restore all if needed.");
+		}
+		return restored;
+	}
+	catch (e)
+	{
+		console.error("[ILS] Failed to flatten chat on " + reason, e);
+		return 0;
+	}
+}
+
+export async function onDelete()
+{
+	await FlattenCurrentChatForUninstall("delete");
+}
+
+export async function onClean()
+{
+	await FlattenCurrentChatForUninstall("clean");
+}
+
 async function CreateEmptySummaryMessage(originalMessages, stContext)
 {
 	const summary = {
@@ -208,6 +382,9 @@ async function CreateEmptySummaryMessage(originalMessages, stContext)
 	summary[kExtraDataKey] = {};
 	summary[kExtraDataKey][kOriginalMessagesKey] = originalMessages;
 	summary[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
+
+	EnsureMessageExtra(summary);
+	WriteExtraTokenCount(summary, await stContext.getTokenCountAsync(summary.mes));
 
 	return summary;
 }
@@ -277,7 +454,7 @@ async function SwapBackFromSummaryProfile(stContext, profileSwap)
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + profileSwap.prevProfile);
 		if (swapResult.isError)
 		{
-			ShowError("Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
+			ShowError("Failed to restore connection profile to:\n" + profileSwap.prevProfile + "\nPlease check the profile manually.");
 		}
 	}
 
@@ -286,7 +463,7 @@ async function SwapBackFromSummaryProfile(stContext, profileSwap)
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + profileSwap.prevPreset);
 		if (swapResult.isError)
 		{
-			ShowError("Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
+			ShowError("Failed to restore preset to:\n" + profileSwap.prevPreset + "\nPlease check the preset manually.");
 		}
 	}
 }
@@ -296,16 +473,20 @@ async function PopulateSummaryMessage(stContext, summaryMsg, msgText, msgReasoni
 	const ilsInstance = GetILSInstance();
 	const runRegex = (ilsInstance.regexEnabled && gSettings.regexPostGenerate);
 
+	const extra = EnsureMessageExtra(summaryMsg);
+
 	if (msgText != null)
 		summaryMsg.mes = runRegex ? getRegexedString(msgText, regex_placement.AI_OUTPUT, { isPrompt: false, isEdit: true, depth: 0 }) : msgText;
 
 	if (msgReasoning != null)
-		summaryMsg.extra.reasoning = runRegex ? getRegexedString(msgReasoning, regex_placement.REASONING, { isPrompt: false, isEdit: true, depth: 0 }) : msgReasoning;
+		extra.reasoning = runRegex ? getRegexedString(msgReasoning, regex_placement.REASONING, { isPrompt: false, isEdit: true, depth: 0 }) : msgReasoning;
 
 	summaryMsg.send_date = getMessageTimeStamp();
-	summaryMsg.extra.api = getGeneratingApi();
-	summaryMsg.extra.model = getGeneratingModel();
-	summaryMsg.extra.token_count = await stContext.getTokenCountAsync(summaryMsg.mes);
+	extra.api = getGeneratingApi();
+	extra.model = getGeneratingModel();
+
+	const tokenText = String(extra.reasoning || "") + String(summaryMsg.mes || "");
+	WriteExtraTokenCount(summaryMsg, await stContext.getTokenCountAsync(tokenText));
 }
 
 async function GenerateSummaryAI()
@@ -361,6 +542,16 @@ async function GenerateSummaryAI()
 		await FinishGenerate(stContext, genStart);
 		await SwapBackFromSummaryProfile(stContext, profileSwap);
 
+		// Roll back in-memory splice so originals are not left only inside a failed summary
+		try
+		{
+			RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start);
+		}
+		catch (e)
+		{
+			ShowError("Failed to roll back original messages after a save error.", e);
+		}
+
 		stContext.activateSendButtons();
 		ilsInstance.operationLock = false;
 
@@ -390,6 +581,9 @@ async function GenerateSummaryAI()
 	let genResponse = await FinishGenerate(stContext, genStart);
 
 	await PopulateSummaryMessage(stContext, stContext.chat[selection.start], genResponse.mainMsg, genResponse.reasoning);
+	ApplyTokenCountToMessageDom(
+		document.querySelector(`.mes[mesid="${selection.start}"]`),
+		stContext.chat[selection.start]?.extra?.token_count);
 
 	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: false, isRegenerate: false });
 
@@ -428,9 +622,10 @@ async function GenerateSummaryManual()
 	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
 	newSummaryMsg.mes = "_Manual Summary_\n_Edit and replace this message with a summary_";
 	newSummaryMsg.send_date = getMessageTimeStamp();
-	newSummaryMsg.extra.api = "custom";
-	newSummaryMsg.extra.model = "Inline Summary Extension - Manual Summary";
-	newSummaryMsg.extra.token_count = await stContext.getTokenCountAsync(newSummaryMsg.mes);
+	const extra = EnsureMessageExtra(newSummaryMsg);
+	extra.api = "custom";
+	extra.model = "Inline Summary Extension - Manual Summary";
+	WriteExtraTokenCount(newSummaryMsg, await stContext.getTokenCountAsync(newSummaryMsg.mes));
 
 	// Delete Originals
 	stContext.chat.splice(selection.start, originalMessages.length);
@@ -514,6 +709,9 @@ async function RegenerateSummary(msgIndex)
 	let genResponse = await FinishGenerate(stContext, genStart);
 
 	await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
+	ApplyTokenCountToMessageDom(
+		document.querySelector(`.mes[mesid="${msgIndex}"]`),
+		summaryMsg?.extra?.token_count);
 
 	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: msgIndex, originalMessages: originalMessages, isManual: false, isRegenerate: true });
 
@@ -709,14 +907,7 @@ const kHeaderButtons = [
 
 			// Technically this being false should be an error, since we shouldn't be able to click restore
 			// on a message that doesn't have Original Messages.
-			if (HasOriginalMessages(summaryMsg))
-			{
-				// TODO: move this into a separate function
-				let originals = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
-
-				stContext.chat.splice(msgIndex + 1, 0, ...originals);
-				stContext.chat.splice(msgIndex, 1);
-			}
+			RestoreOriginalsInPlace(stContext, msgIndex);
 
 			ClearSelection(stContext, false);
 
@@ -773,6 +964,13 @@ function RefreshMessageElements(messageDiv, msgIndex)
 			msgButton.style.color = def.GetColor ? def.GetColor(msgIndex) : kMsgBtnColours.default;
 		}
 	});
+
+	if (HasOriginalMessages(msgObject) && power_user.message_token_count_enabled)
+	{
+		const tokenCount = Number(msgObject.extra?.token_count);
+		if (Number.isFinite(tokenCount) && tokenCount > 0)
+			ApplyTokenCountToMessageDom(messageDiv, tokenCount);
+	}
 
 	const existingOrigMsgDiv = messageDiv.querySelector(".ils_original_messages_root");
 	if (HasOriginalMessages(msgObject))
@@ -906,7 +1104,8 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 
 		visMsg++;
 
-		const cachedTokenCount = msgObject?.extra?.[kExtraDataKey]?.[kMessageEstimatedTokenCountKey]?.[i];
+		const tokenCache = GetOriginalMessagesTokenCache(msgObject);
+		const cachedTokenCount = tokenCache ? tokenCache[i] : null;
 		// token_count does include reasoning, which we do not summarise, so only use it on chats where we do our own maths.
 		origTokens += Number((cachedTokenCount == null) ? (msg?.extra?.token_count ?? 0) : cachedTokenCount) || 0;
 	}
@@ -995,7 +1194,7 @@ function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, pa
 	{
 		const tokenDisp = document.createElement("div");
 		tokenDisp.className = "tokenCounterDisplay";
-		tokenDisp.textContent = (msgObject.extra.token_count ?? "--") + "t";
+		tokenDisp.textContent = (msgObject.extra?.token_count ?? "--") + "t";
 		headerRow.appendChild(tokenDisp);
 
 		headerRow.appendChild(OrigMsgHeaderSeparator(depth));
@@ -1177,6 +1376,30 @@ async function OnChatChanged(data)
 			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat while recovering legacy summaries... Well, that's less than ideal.");
 		}
 	}
+
+	// Backfill missing token counts on summary messages so ST can render "Nt"
+	if (power_user.message_token_count_enabled)
+	{
+		let didCount = false;
+		for (const msg of stContext.chat)
+		{
+			if (!HasOriginalMessages(msg))
+				continue;
+
+			const existing = Number(msg.extra?.token_count);
+			if (Number.isFinite(existing) && existing > 0)
+			{
+				WriteExtraTokenCount(msg, existing);
+				continue;
+			}
+
+			await EnsureMessageTokenCount(msg, stContext);
+			didCount = true;
+		}
+
+		if (didCount)
+			await stContext.saveChat();
+	}
 }
 
 function OnMoreMsgLoaded(data)
@@ -1197,7 +1420,7 @@ async function OnMessageEdited(data)
 	const msg = GetMessageByIndex(msgIdx, stContext);
 
 	if (HasOriginalMessages(msg))
-		msg.extra.token_count = await stContext.getTokenCountAsync(msg.mes);
+		await EnsureMessageTokenCount(msg, stContext);
 }
 
 // =========================
@@ -1230,57 +1453,24 @@ async function SummariseCommand(namedArgs, unnamedArgs)
 
 async function RestoreCommand(namedArgs, unnamedArgs)
 {
-	const idParams = String(unnamedArgs).split(' ');
-	let numToRestore = idParams[0] ? Math.max(0, parseInt(idParams[0], 10)) : 0;
+	const raw = String(unnamedArgs ?? "").trim().toLowerCase();
+	const token = raw.split(/\s+/)[0] || "";
+	const restoreAll = token === "all" || token === "*";
+	const numToRestore = restoreAll ? Infinity : Math.max(0, parseInt(token, 10) || 0);
 
-	const ilsInstance = GetILSInstance();
-	if (ilsInstance.operationLock)
+	if (!restoreAll && numToRestore === 0)
+	{
+		toastr.error("[ILS] Usage: /ils-restore <count|all>");
 		return "";
-
-	const stContext = SillyTavern.getContext();
-
-	ilsInstance.operationLock = true;
-	stContext.deactivateSendButtons();
-
-	let didRestore = false;
-	while (numToRestore > 0)
-	{
-		let lastSummary = -1;
-		for (let i = stContext.chat.length - 1; i >= 0; --i)
-		{
-			if (HasOriginalMessages(stContext.chat[i]))
-			{
-				lastSummary = i;
-				break;
-			}
-		}
-		if (lastSummary > -1)
-		{
-			// TODO: move this into a separate function
-			let originals = stContext.chat[lastSummary][kExtraDataKey][kOriginalMessagesKey];
-
-			stContext.chat.splice(lastSummary + 1, 0, ...originals);
-			stContext.chat.splice(lastSummary, 1);
-			didRestore = true;
-		}
-		else
-		{
-			break;
-		}
-
-		--numToRestore;
 	}
 
-	ClearSelection(stContext, !didRestore);
-	if (didRestore)
-	{
-		await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Failed to Restore messages. Refreshing the page is recommended.");
-	}
+	const restored = await RestoreSummaries(numToRestore);
+	if (restored === 0)
+		toastr.info("[ILS] No summaries to restore.");
+	else
+		toastr.success("[ILS] Restored originals from " + restored + " summar" + (restored === 1 ? "y." : "ies."));
 
-	stContext.activateSendButtons();
-	ilsInstance.operationLock = false;
-
-	return "";
+	return String(restored);
 }
 
 async function Experiment1(namedArgs, unnamedArgs)
@@ -1506,7 +1696,8 @@ jQuery(async () =>
 	document.addEventListener("click", MainClickHandler);
 
 	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-summarise",
+		name: "ils",
+		aliases: ["ils-sum", "ils-summarise", "ils-summarize"],
 		callback: SummariseCommand,
 		namedArgumentList: [
 			stContext.SlashCommandNamedArgument.fromProps({
@@ -1530,39 +1721,46 @@ jQuery(async () =>
 		],
 		helpString: `
 		<div>
-			Summarise the specified range of messages using AI. Inclusive range, must be at least 2 mesages long.
+			Summarise a message range with AI. Inclusive, at least 2 messages.
+			Aliases: <code>/ils-sum</code>, <code>/ils-summarise</code>, <code>/ils-summarize</code>
 		</div>
 		<div>
 			<strong>Examples:</strong>
-			<pre><code class="language-stscript">/ils-summarise 8 16</code></pre>
-			<pre><code class="language-stscript">/ils-summarise manual=true 10 20</code></pre>
+			<pre><code class="language-stscript">/ils 8 16</code></pre>
+			<pre><code class="language-stscript">/ils manual=true 10 20</code></pre>
 		</div>
 		`
 	}));
 
+	GetILSInstance().RestoreSummaries = RestoreSummaries;
+
 	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-restore",
+		name: "ils-undo",
+		aliases: ["ils-restore", "ils-back"],
 		callback: RestoreCommand,
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
-				description: 'Summaries to restore',
-				typeList: stContext.ARGUMENT_TYPE.NUMBER,
+				description: 'Number of latest summaries to restore, or "all"',
+				typeList: stContext.ARGUMENT_TYPE.STRING,
 				isRequired: true,
 			}),
 		],
 		helpString: `
 		<div>
-			Restore original messages from specified number of latest summaries.
+			Restore original messages from the newest summaries. Use <code>all</code> to expand every summary in the current chat, including nested ones.
+			Aliases: <code>/ils-restore</code>, <code>/ils-back</code>
 		</div>
 		<div>
 			<strong>Examples:</strong>
 			<pre><code class="language-stscript">/ils-restore 3</code></pre>
+			<pre><code class="language-stscript">/ils-restore all</code></pre>
 		</div>
 		`
 	}));
 
 	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-experimental-summarise-linear",
+		name: "ils-linear",
+		aliases: ["ils-experimental-summarise-linear"],
 		callback: Experiment1,
 		namedArgumentList: [
 			stContext.SlashCommandNamedArgument.fromProps({
@@ -1574,25 +1772,27 @@ jQuery(async () =>
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
-				description: 'Param',
+				description: 'Chunk size',
 				typeList: stContext.ARGUMENT_TYPE.NUMBER,
 				isRequired: true,
 			}),
 		],
 		helpString: `
 		<div>
-			Experimental 1 - Summarise All Linear - Use at your own risk!
+			Experimental: walk forward from the last summary and compress the chat in chunks. Use at your own risk.
+			Alias: <code>/ils-experimental-summarise-linear</code>
 		</div>
 		<div>
 			<strong>Examples:</strong>
-			<pre><code class="language-stscript">/ils-experimental-summarise-linear 10</code></pre>
-			<pre><code class="language-stscript">/ils-experimental-summarise-linear manual=true 10</code></pre>
+			<pre><code class="language-stscript">/ils-linear 10</code></pre>
+			<pre><code class="language-stscript">/ils-linear manual=true 10</code></pre>
 		</div>
 		`
 	}));
 
 	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
-		name: "ils-experimental-summarise-stacked",
+		name: "ils-stack",
+		aliases: ["ils-experimental-summarise-stacked"],
 		callback: Experiment2,
 		namedArgumentList: [
 			stContext.SlashCommandNamedArgument.fromProps({
@@ -1604,19 +1804,20 @@ jQuery(async () =>
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
-				description: 'Param',
+				description: 'Chunk size',
 				typeList: stContext.ARGUMENT_TYPE.NUMBER,
 				isRequired: true,
 			}),
 		],
 		helpString: `
 		<div>
-			Experimental 2 - Summarise All Stacked - Use at your own risk!
+			Experimental: keep compressing from the start of the chat into stacked summaries. Use at your own risk.
+			Alias: <code>/ils-experimental-summarise-stacked</code>
 		</div>
 		<div>
 			<strong>Examples:</strong>
-			<pre><code class="language-stscript">/ils-experimental-summarise-stacked 10</code></pre>
-			<pre><code class="language-stscript">/ils-experimental-summarise-stacked manual=true 10</code></pre>
+			<pre><code class="language-stscript">/ils-stack 10</code></pre>
+			<pre><code class="language-stscript">/ils-stack manual=true 10</code></pre>
 		</div>
 		`
 	}));

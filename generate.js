@@ -78,21 +78,14 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 	const startPromptTokenCount = await stContext.getTokenCountAsync(mainPromptMsg.content);
 	remainingSize -= startPromptTokenCount;
 
-	// Setup Mid-Prompt
-	const midPromptMsg = {
-		content: ilsSettings.historicalContextEndMarker + "\n" + ((ilsSettings.midPrompt !== "") ? "\n" + ilsSettings.midPrompt : "") + "\n" + ilsSettings.summariseStartMarker,
+	// Close historical context (content markers / mid / end prompts were removed)
+	const histEndMsg = {
+		content: ilsSettings.historicalContextEndMarker,
 		role: "user" };
-	const midPromptToekenCount = await stContext.getTokenCountAsync(midPromptMsg.content);
-	remainingSize -= midPromptToekenCount;
+	const histEndTokenCount = await stContext.getTokenCountAsync(histEndMsg.content);
+	remainingSize -= histEndTokenCount;
 
-	// Setup End-Prompt
-	const endPromptMsg = {
-		content: ilsSettings.summariseEndMarker + ((ilsSettings.endPrompt !== "") ? "\n" + ilsSettings.endPrompt : ""),
-		role: "user" };
-	const endPromptTokenCount = await stContext.getTokenCountAsync(endPromptMsg.content);
-	remainingSize -= endPromptTokenCount
-
-	const instructionTokenTotal = startPromptTokenCount + midPromptToekenCount + endPromptTokenCount;
+	const instructionTokenTotal = startPromptTokenCount + histEndTokenCount;
 
 	// Check if Prompt fits
 	if (remainingSize < 0)
@@ -101,8 +94,7 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 			promptText: "",
 			promptError: "Prompt instructions too big for context:\nReserved for reply: " + resSize
 				+ ";\nStart Prompt: " + startPromptTokenCount
-				+ ";\nMid Prompt: " + midPromptToekenCount
-				+ ";\nEnd Prompt: " + endPromptTokenCount
+				+ ";\nHistory End Marker: " + histEndTokenCount
 				+ ";\nTotal: " + (resSize + instructionTokenTotal) + " of " + ctxSize + " context."
 		};
 
@@ -141,8 +133,7 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 			promptText: "",
 			promptError: "Messages to summarise too big for context:\nReserved for reply: " + resSize
 				+ ";\nStart Prompt: " + startPromptTokenCount
-				+ ";\nMid Prompt: " + midPromptToekenCount
-				+ ";\nEnd Prompt: " + endPromptTokenCount
+				+ ";\nHistory End Marker: " + histEndTokenCount
 				+ ";\nMessages to Summarise: " + messagesToSummariseTokenCount
 				+ ";\nTotal: " + (resSize + instructionTokenTotal + messagesToSummariseTokenCount) + " of " + ctxSize + " context."
 		};
@@ -195,7 +186,7 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 	}
 
 	// Combine all parts
-	let summaryPromptMessages = [mainPromptMsg, ...historicalMsg, midPromptMsg, ...summariseMsg, endPromptMsg];
+	let summaryPromptMessages = [mainPromptMsg, ...historicalMsg, histEndMsg, ...summariseMsg];
 
 	// Finalize
 	if (!ilsSettings.useMultiMessage)

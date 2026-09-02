@@ -43,18 +43,6 @@
 				<label>Historical Context End Marker</label>
 				<textarea class="text_pole textarea_compact" id="ils_setting_hist_ctx_end" rows="1"
 					title="A marker inserted around historical context"></textarea>
-				<label>Summary Prompt Middle</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_mid" rows="5"
-					title="Middle Summary Prompt Segment, inserted after the historical context and before content to be summarised"></textarea>
-				<label>Content Start Marker</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_summ_cont_start" rows="1"
-					title="A marker inserted around content to be summarised"></textarea>
-				<label>Content End Marker</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_summ_cont_end" rows="1"
-					title="A marker inserted around content to be summarised"></textarea>
-				<label>Summary Prompt End</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_end" rows="5"
-					title="End Summary Prompt, inserted at the end of the prompt"></textarea>
 				<label>Response Token Limit (0 for Use Global)</label>
 				<input class="neo-range-input" type="number" id="ils_setting_token_limit" min="0" max="9999999999"
 					step="1" value="0">
@@ -120,6 +108,14 @@
 					<input type="checkbox" id="ils_setting_do_legacy_recovery">
 					<span>Restore legacy summary messages. (Can be disabled if you've do not have chats with summaries generated before v1.2)</span>
 				</label>
+				<hr style="margin: 8px 0;">
+				<div id="ils_setting_restore_all" class="menu_button interactable ils_fullwidth_btn" title="Replace every Inline Summary in this chat with the stored original messages" tabindex="0" role="button">
+					Restore all originals in this chat
+				</div>
+				<div class="margin5p" style="opacity:0.85; font-size:0.9em;">
+					Before uninstalling the extension, run this (or <code>/ils-restore all</code>) in every chat that has summaries.
+					Deleting the extension will auto-restore only the currently open chat; other chats keep their summaries in the file.
+				</div>
 			</div>
 		</div>
 	</div>

@@ -159,20 +159,8 @@ export function OnSettingChanged(event)
 		case "ils_setting_hist_ctx_end":
 			gSettings.historicalContextEndMarker = val;
 			break;
-		case "ils_setting_summ_cont_start":
-			gSettings.summariseStartMarker = val;
-			break;
-		case "ils_setting_summ_cont_end":
-			gSettings.summariseEndMarker = val;
-			break;
 		case "ils_setting_prompt_main":
 			gSettings.startPrompt = val;
-			break;
-		case "ils_setting_prompt_mid":
-			gSettings.midPrompt = val;
-			break;
-		case "ils_setting_prompt_end":
-			gSettings.endPrompt = val;
 			break;
 		case "ils_setting_use_different_profile":
 			gSettings.useDifferentProfile = event.target.checked;
@@ -257,7 +245,7 @@ export async function OnSettingSpDelete()
 		return;
 	}
 
-	const confirm = await Popup.show.confirm("Confirmation", "Are you use you want to delete '" + gSpName + "'?");
+	const confirm = await Popup.show.confirm("Confirmation", "Are you sure you want to delete '" + gSpName + "'?");
 	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
 		return;
 
@@ -344,9 +332,32 @@ export async function OnSettingSpExport()
 	download(JSON.stringify(settings, null, "\t"), gSpName + ".json", "application/json");
 }
 
+export async function OnSettingRestoreAll()
+{
+	const confirm = await Popup.show.confirm(
+		"Restore all originals?",
+		"This replaces every Inline Summary in the current chat with the stored original messages. Nested summaries are fully expanded."
+	);
+	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
+		return;
+
+	const restoreFn = GetILSInstance().RestoreSummaries;
+	if (typeof restoreFn !== "function")
+	{
+		ShowError("Restore function is not ready yet. Reload the page and try again.");
+		return;
+	}
+
+	const restored = await restoreFn(Infinity);
+	if (restored === 0)
+		toastr.info("[ILS] No summaries to restore in this chat.");
+	else
+		toastr.success("[ILS] Restored originals from " + restored + " summar" + (restored === 1 ? "y." : "ies."));
+}
+
 export async function OnSettingSpResetToDefault()
 {
-	const confirm = await Popup.show.confirm("Confirmation", "Are you use you reset '" + gSpName + "' to default settings?");
+	const confirm = await Popup.show.confirm("Confirmation", "Are you sure you want to reset '" + gSpName + "' to default settings?");
 	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
 		return;
 
@@ -375,11 +386,7 @@ export async function UpdateSettingsUI()
 	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
 	$("#ils_setting_hist_ctx_end").val(gSettings.historicalContextEndMarker);
-	$("#ils_setting_summ_cont_start").val(gSettings.summariseStartMarker);
-	$("#ils_setting_summ_cont_end").val(gSettings.summariseEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);
-	$("#ils_setting_prompt_mid").val(gSettings.midPrompt);
-	$("#ils_setting_prompt_end").val(gSettings.endPrompt);
 	$("#ils_setting_token_limit").val(gSettings.tokenLimit);
 	$("#ils_setting_smr_name_custom_val").val(gSettings.summaryName);
 	$("#ils_setting_auto_scroll").prop("checked", gSettings.autoScroll);
@@ -563,11 +570,7 @@ export function SetupOnSettingChangeEvents()
 	$("#ils_setting_hist_ctx_depth").on("input", OnSettingChanged);
 	$("#ils_setting_hist_ctx_start").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_hist_ctx_end").on("input", Debounce(OnSettingChanged, 500));
-	$("#ils_setting_summ_cont_start").on("input", Debounce(OnSettingChanged, 500));
-	$("#ils_setting_summ_cont_end").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_prompt_main").on("input", Debounce(OnSettingChanged, 500));
-	$("#ils_setting_prompt_mid").on("input", Debounce(OnSettingChanged, 500));
-	$("#ils_setting_prompt_end").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_smr_name_custom_val").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_token_limit").on("input", OnSettingChanged);
 	$("#ils_setting_use_different_profile").on("change", OnSettingChanged);
@@ -581,12 +584,14 @@ export function SetupOnSettingChangeEvents()
 	$("#ils_setting_enable_regex_pre_generate").on("change", OnSettingChanged);
 	$("#ils_setting_enable_regex_post_generate").on("change", OnSettingChanged);
 	$("#ils_setting_enable_multi_msg_prompt").on("change", OnSettingChanged);
+	$("#ils_setting_do_legacy_recovery").on("change", OnSettingChanged);
 
 	$("#ils_setting_sp_new").on("click", OnSettingSpNew);
 	$("#ils_setting_sp_delete").on("click", OnSettingSpDelete);
 	$("#ils_setting_sp_import").on("click", OnSettingSpImportClick);
 	$("#ils_setting_sp_export").on("click", OnSettingSpExport);
 	$("#ils_setting_sp_reset_default").on("click", OnSettingSpResetToDefault);
+	$("#ils_setting_restore_all").on("click", OnSettingRestoreAll);
 
 	$("#ils_setting_sp_import_file").on("change", OnSettingSpImportFile);
 }
