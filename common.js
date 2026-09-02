@@ -5,9 +5,23 @@
 // =========================
 
 export const kExtensionName = "InlineSummary";
-export const kExtensionFolderPath = `scripts/extensions/third-party/${kExtensionName}`;
-export const kSettingsFile = `${kExtensionFolderPath}/settings.html`;
-export const kDefaultsFile = `${kExtensionFolderPath}/defaults.json`;
+
+function ResolveExtensionBaseUrl()
+{
+	try
+	{
+		return new URL("./", import.meta.url).href;
+	}
+	catch
+	{
+		return `scripts/extensions/third-party/${kExtensionName}/`;
+	}
+}
+
+export const kExtensionBaseUrl = ResolveExtensionBaseUrl();
+export const kExtensionFolderPath = kExtensionBaseUrl;
+export const kSettingsFile = new URL("settings.html", kExtensionBaseUrl).href;
+export const kDefaultsFile = new URL("defaults.json", kExtensionBaseUrl).href;
 export const kExtraDataKey = "ILS_Data";
 export const kOriginalMessagesKey = "OriginalMessages";
 export const kMessageEstimatedTokenCountKey = "EstimatedTokens";

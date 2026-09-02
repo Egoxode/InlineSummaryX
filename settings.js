@@ -80,7 +80,27 @@ export async function LoadSettings(stContext)
 		activeSettings = rootSettings.spData[settingPresetName];
 	}
 
-	const defaultsJson = await $.get(kDefaultsFile);
+	let defaultsJson = {};
+	const defaultsUrls = [
+		kDefaultsFile,
+		new URL("defaults.json", import.meta.url).href,
+		"scripts/extensions/third-party/InlineSummary/defaults.json",
+		"scripts/extensions/third-party/InlineSummary_by_ego/defaults.json",
+	];
+	for (const url of defaultsUrls)
+	{
+		try
+		{
+			const loaded = await $.get(url);
+			defaultsJson = (typeof loaded === "string") ? JSON.parse(loaded) : loaded;
+			if (defaultsJson?.defaultPrompt)
+				break;
+		}
+		catch
+		{
+			defaultsJson = {};
+		}
+	}
 	for (const settingKey of Object.keys(kDefaultSettings))
 	{
 		if (Object.hasOwn(activeSettings, settingKey))

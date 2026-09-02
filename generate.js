@@ -50,6 +50,39 @@ import
 	SafeJsonStringify,
 } from './common.js';
 
+function SpeakerName(msg)
+{
+	const name = String(msg?.name ?? "").trim();
+	if (name)
+		return name;
+	return msg?.is_user ? "User" : "Assistant";
+}
+
+function ToPromptMessage(msg, text, prefixName)
+{
+	const name = SpeakerName(msg);
+	const role = msg.is_user ? "user" : "assistant";
+	return {
+		content: prefixName ? `${name}: ${text}` : text,
+		role,
+		name,
+	};
+}
+
+export function CancelGenerate()
+{
+	const ilsInstance = GetILSInstance();
+	ilsInstance.cancelRequested = true;
+	try
+	{
+		ilsInstance.abortCtrl?.abort();
+	}
+	catch (e)
+	{
+		console.warn("[ILS] Abort failed", e);
+	}
+}
+
 // =========================
 // Summary Generation Main
 // =========================
@@ -117,8 +150,9 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 			if (msgText.length > 0)
 			{
-				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(msgText);
-				summariseMsg.push({ content: msgText, role: msg.is_user ? "user" : "assistant" });
+				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
+				messagesToSummariseTokenCount += await stContext.getTokenCountAsync(promptPiece.content);
+				summariseMsg.push(promptPiece);
 			}
 		}
 	}
@@ -168,15 +202,15 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 			if (msgText.length > 0)
 			{
-				const tokenCost = await stContext.getTokenCountAsync(msgText);
+				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
+				const tokenCost = await stContext.getTokenCountAsync(promptPiece.content);
 				if ((remainingSize - tokenCost) > 0)
 				{
 					histContextTokenCount += tokenCost;
 					remainingSize -= tokenCost;
-					historicContex = msgText + historicContex;
-					historicalMsg.unshift({ content: msgText, role: msg.is_user ? "user" : "assistant" });
+					historicContex = promptPiece.content + historicContex;
+					historicalMsg.unshift(promptPiece);
 				}
-				// Context too full
 				else
 				{
 					break;
@@ -208,6 +242,8 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 	let errText = "";
 	let oldMaxTokens = 0;
 	let abortCtrl = new AbortController();
+	ilsInstance.abortCtrl = abortCtrl;
+	ilsInstance.cancelRequested = false;
 
 	try
 	{
@@ -221,7 +257,7 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 			}
 
 			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
-			queryFuture = sendOpenAIRequest("normal", promptMsg, null, {});
+			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl, {});
 		}
 		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
 		{
@@ -288,15 +324,24 @@ export async function FinishGenerate(stContext, genStart)
 	let response = null;
 	let isOk = genStart.isOk;
 
+	const ilsInstance = GetILSInstance();
+
 	try
 	{
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("Summary cancelled", "AbortError");
+
 		response = await genStart.generateQuery;
+		if (ilsInstance.cancelRequested)
+			throw new DOMException("Summary cancelled", "AbortError");
+
 		if (typeof response === 'function') // Streaming Request
 		{
 			let latestData = {};
-			// Copied from another ST script, no idea how this actually is suppoed to work, but just updating till the loop exits seems to work.
 			for await (const chunk of response())
 			{
+				if (ilsInstance.cancelRequested)
+					throw new DOMException("Summary cancelled", "AbortError");
 				latestData = chunk;
 			}
 			responseText = latestData?.text ?? "";
@@ -310,6 +355,12 @@ export async function FinishGenerate(stContext, genStart)
 	}
 	catch (e)
 	{
+		const cancelled = ilsInstance.cancelRequested || e?.name === "AbortError";
+		if (cancelled)
+		{
+			return { mainMsg: "", reasoning: null, isOk: false, cancelled: true };
+		}
+
 		console.error("[ILS] Failed to get response from LLM");
 		responseText = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nException:\n" + e;
 		if (useNewGenerate)
@@ -323,5 +374,5 @@ export async function FinishGenerate(stContext, genStart)
 		stContext.chatCompletionSettings.openai_max_tokens = genStart.maxResponseTokens;
 	}
 
-	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk };
+	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk, cancelled: false };
 }

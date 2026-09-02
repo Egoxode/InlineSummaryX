@@ -1,5 +1,10 @@
 # Full Changelog
 
+#### v1.2.7
+Settings and defaults now load from the installed folder URL, so GitHub installs as `InlineSummary_by_ego` show the Extensions drawer.<br>
+Summary prompts include speaker names (prefixed in single-message mode, `name` field in multi-message mode).<br>
+AI summaries generate before the chat range is replaced. Cancel via the toast or SillyTavern Stop; a failed or cancelled run leaves originals in place.
+
 #### v1.2.6
 Removed Summary Prompt Middle, Summary Prompt End, and Content Start/End Marker. Instructions now live only in the main summary prompt.
 

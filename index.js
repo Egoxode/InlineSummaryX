@@ -60,6 +60,7 @@ import
 	MakeSummaryPrompt,
 	StartGenerate,
 	FinishGenerate,
+	CancelGenerate,
 } from './generate.js'
 
 // =========================
@@ -489,6 +490,34 @@ async function PopulateSummaryMessage(stContext, summaryMsg, msgText, msgReasoni
 	WriteExtraTokenCount(summaryMsg, await stContext.getTokenCountAsync(tokenText));
 }
 
+function HideGeneratingToast()
+{
+	const ilsInstance = GetILSInstance();
+	if (ilsInstance.generatingToast)
+	{
+		try { toastr.clear(ilsInstance.generatingToast); }
+		catch { /* ignore */ }
+		ilsInstance.generatingToast = null;
+	}
+}
+
+function ShowGeneratingToast()
+{
+	HideGeneratingToast();
+	const ilsInstance = GetILSInstance();
+	ilsInstance.generatingToast = toastr.info(
+		"Generating summary… Click this toast or press Stop to cancel.",
+		"[ILS]",
+		{
+			timeOut: 0,
+			extendedTimeOut: 0,
+			tapToDismiss: false,
+			closeButton: true,
+			onclick: () => CancelGenerate(),
+		}
+	);
+}
+
 async function GenerateSummaryAI()
 {
 	let stContext = SillyTavern.getContext();
@@ -503,104 +532,72 @@ async function GenerateSummaryAI()
 	ilsInstance.operationLock = true;
 	stContext.deactivateSendButtons();
 
-	// Swap Profile
-	const profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
+	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
+	let inserted = false;
 
-	if (!profileSwap.success)
+	try
 	{
-		stContext.activateSendButtons();
-		ilsInstance.operationLock = false;
-		return false;
-	}
+		profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
+		if (!profileSwap.success)
+			return false;
 
-	// Prepare original messages and prompt
-	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-	const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(selection.start, stContext.chat.length - (selection.end + 1), originalMessages, stContext, gSettings);
+		const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+		const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(selection.start, stContext.chat.length - (selection.end + 1), originalMessages, stContext, gSettings);
 
-	if (!promptOk)
-	{
-		ShowError("Failed to make summary prompt.\n" + promptError);
-		stContext.activateSendButtons();
-		ilsInstance.operationLock = false;
-		return false;
-	}
-
-	// Start LLM generation asynchronously without awaiting yet
-	let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
-
-	// create empty summary message while generation runs
-	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
-
-	// Delete Originals
-	stContext.chat.splice(selection.start, originalMessages.length);
-	// Insert summary message into chat and save/reload
-	stContext.chat.splice(selection.start, 0, newSummaryMsg);
-
-	const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.");
-	if (!chatReload1)
-	{
-		await FinishGenerate(stContext, genStart);
-		await SwapBackFromSummaryProfile(stContext, profileSwap);
-
-		// Roll back in-memory splice so originals are not left only inside a failed summary
-		try
+		if (!promptOk)
 		{
-			RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start);
-		}
-		catch (e)
-		{
-			ShowError("Failed to roll back original messages after a save error.", e);
+			ShowError("Failed to make summary prompt.\n" + promptError);
+			return false;
 		}
 
-		stContext.activateSendButtons();
-		ilsInstance.operationLock = false;
+		ShowGeneratingToast();
+		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+		const genResponse = await FinishGenerate(stContext, genStart);
+		HideGeneratingToast();
 
-		return false;
-	}
-
-	await BringIntoView(selection.start);
-
-	// Find and update the HTML element for the summary message with a loading spinner
-	{
-		const summaryMsgElement = document.querySelector(`.mes[mesid="${selection.start}"]`);
-		if (summaryMsgElement)
+		if (genResponse.cancelled || ilsInstance.cancelRequested)
 		{
-			const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-			if (mesTextElement)
-			{
-				// Create and insert loading spinner
-				// We don't need to delete the spinner as reloading the chat will destroy it for us.
-				const spinner = MakeSpinner();
-				mesTextElement.innerHTML = "";
-				mesTextElement.appendChild(spinner);
-			}
+			toastr.info("[ILS] Summary cancelled. Chat was not changed.");
+			return false;
 		}
-	}
 
-	// Now await for the LLM response to complete
-	let genResponse = await FinishGenerate(stContext, genStart);
+		if (!genResponse.isOk)
+		{
+			ShowError("Summary generation failed. Original messages were left in place.");
+			return false;
+		}
 
-	await PopulateSummaryMessage(stContext, stContext.chat[selection.start], genResponse.mainMsg, genResponse.reasoning);
-	ApplyTokenCountToMessageDom(
-		document.querySelector(`.mes[mesid="${selection.start}"]`),
-		stContext.chat[selection.start]?.extra?.token_count);
+		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
+		await PopulateSummaryMessage(stContext, newSummaryMsg, genResponse.mainMsg, genResponse.reasoning);
 
-	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: false, isRegenerate: false });
+		stContext.chat.splice(selection.start, originalMessages.length);
+		stContext.chat.splice(selection.start, 0, newSummaryMsg);
+		inserted = true;
 
-	ClearSelection(stContext, false);
+		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: false, isRegenerate: false });
+		ClearSelection(stContext, false);
 
-	// Save and reload to reflect the final response in the UI
-	const chatReload2 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
+		const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
+		if (!chatReload)
+		{
+			try { RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start); }
+			catch (e) { ShowError("Failed to roll back original messages after a save error.", e); }
+			return false;
+		}
 
-	await SwapBackFromSummaryProfile(stContext, profileSwap);
-
-	stContext.activateSendButtons();
-	ilsInstance.operationLock = false;
-
-	if (chatReload2)
 		BringIntoView(selection.start);
-
-	return genResponse.isOk && chatReload2;
+		return true;
+	}
+	finally
+	{
+		HideGeneratingToast();
+		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
+		SillyTavern.getContext().activateSendButtons();
+		ilsInstance.operationLock = false;
+		ilsInstance.abortCtrl = null;
+		ilsInstance.cancelRequested = false;
+		void inserted;
+	}
 }
 
 async function GenerateSummaryManual()
@@ -660,70 +657,59 @@ async function RegenerateSummary(msgIndex)
 	ilsInstance.operationLock = true;
 	stContext.deactivateSendButtons();
 
-	// Swap Profile
-	const profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
+	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
 
-	if (!profileSwap.success)
+	try
 	{
-		stContext.activateSendButtons();
-		ilsInstance.operationLock = false;
-		return;
-	}
+		profileSwap = await SwapToSummaryProfile(stContext, ilsInstance);
+		if (!profileSwap.success)
+			return;
 
-	const originalMessages = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
-	const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
+		const originalMessages = summaryMsg[kExtraDataKey][kOriginalMessagesKey];
+		const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(msgIndex, stContext.chat.length - (msgIndex + 1), originalMessages, stContext, gSettings);
 
-	if (!promptOk)
-	{
-		ShowError("Failed to make summary prompt.\n" + promptError);
-		stContext.activateSendButtons();
-		ilsInstance.operationLock = false;
-		return
-	}
-
-	// Start LLM generation asynchronously without awaiting yet
-	let genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
-
-	summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
-
-	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
-	if (summaryMsgElement)
-	{
-		// Clear reasoning element to make it neater.
-		const reasoningElement = summaryMsgElement.querySelector(".mes_reasoning_details");
-		if (reasoningElement)
-			reasoningElement.remove();
-
-		const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-		if (mesTextElement)
+		if (!promptOk)
 		{
-			// Create and insert loading spinner
-			// We don't need to delete the spinner as reloading the chat will destroy it for us.
-			const spinner = MakeSpinner();
-			mesTextElement.innerHTML = "";
-			mesTextElement.appendChild(spinner);
+			ShowError("Failed to make summary prompt.\n" + promptError);
+			return;
 		}
+
+		ShowGeneratingToast();
+		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+		const genResponse = await FinishGenerate(stContext, genStart);
+		HideGeneratingToast();
+
+		if (genResponse.cancelled || ilsInstance.cancelRequested)
+		{
+			toastr.info("[ILS] Re-summarise cancelled. Existing summary was kept.");
+			return;
+		}
+
+		if (!genResponse.isOk)
+		{
+			ShowError("Re-summarise failed. Existing summary was kept.");
+			return;
+		}
+
+		summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
+		await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
+		ApplyTokenCountToMessageDom(
+			document.querySelector(`.mes[mesid="${msgIndex}"]`),
+			summaryMsg?.extra?.token_count);
+
+		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: msgIndex, originalMessages: originalMessages, isManual: false, isRegenerate: true });
+		await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.");
+		BringIntoView(msgIndex);
 	}
-
-	// Now await for the LLM response to complete
-	let genResponse = await FinishGenerate(stContext, genStart);
-
-	await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
-	ApplyTokenCountToMessageDom(
-		document.querySelector(`.mes[mesid="${msgIndex}"]`),
-		summaryMsg?.extra?.token_count);
-
-	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: msgIndex, originalMessages: originalMessages, isManual: false, isRegenerate: true });
-
-	// Save and reload to reflect the final response in the UI
-	await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.");
-
-	await SwapBackFromSummaryProfile(stContext, profileSwap);
-
-	stContext.activateSendButtons();
-	ilsInstance.operationLock = false;
-
-	BringIntoView(msgIndex);
+	finally
+	{
+		HideGeneratingToast();
+		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
+		SillyTavern.getContext().activateSendButtons();
+		ilsInstance.operationLock = false;
+		ilsInstance.abortCtrl = null;
+		ilsInstance.cancelRequested = false;
+	}
 }
 
 // =========================
@@ -1605,20 +1591,46 @@ jQuery(async () =>
 
 	await LoadSettings(stContext);
 
-	// Setup Settings Menu
-	const settingsHtml = await $.get(kSettingsFile);
+	// Setup Settings Menu. Resolve from this module's folder so GitHub installs
+	// named InlineSummary_by_ego (or any other folder) still find settings.html.
+	const settingsUrls = [
+		kSettingsFile,
+		new URL("settings.html", import.meta.url).href,
+		"scripts/extensions/third-party/InlineSummary/settings.html",
+		"scripts/extensions/third-party/InlineSummary_by_ego/settings.html",
+	];
 
-	const $extensions = $("#extensions_settings");
-	const $existing = $extensions.find(".inline-summary-settings");
-	if ($existing.length > 0)
-		$existing.replaceWith(settingsHtml);
+	let settingsHtml = "";
+	for (const url of settingsUrls)
+	{
+		try
+		{
+			settingsHtml = await $.get(url);
+			if (settingsHtml)
+				break;
+		}
+		catch
+		{
+			settingsHtml = "";
+		}
+	}
+
+	if (settingsHtml)
+	{
+		const $extensions = $("#extensions_settings");
+		const $existing = $extensions.find(".inline-summary-settings");
+		if ($existing.length > 0)
+			$existing.replaceWith(settingsHtml);
+		else
+			$extensions.append(settingsHtml);
+
+		await UpdateSettingsUI();
+		SetupOnSettingChangeEvents();
+	}
 	else
-		$extensions.append(settingsHtml);
-
-	// Fill In setting values
-	await UpdateSettingsUI();
-
-	SetupOnSettingChangeEvents();
+	{
+		ShowError("Could not load settings.html. The extension folder name does not match the hardcoded path. Message buttons still work.");
+	}
 
 	// Message Action Buttons
 	const templateContainer = document.querySelector("#message_template .mes_buttons .extraMesButtons");
@@ -1680,6 +1692,7 @@ jQuery(async () =>
 		{ type: stContext.eventTypes.MORE_MESSAGES_LOADED, handler: OnMoreMsgLoaded },
 		{ type: stContext.eventTypes.MAIN_API_CHANGED, handler: OnMainApiChanged },
 		{ type: stContext.eventTypes.MESSAGE_EDITED, handler: OnMessageEdited },
+		{ type: stContext.eventTypes.GENERATION_STOPPED, handler: () => { if (GetILSInstance().operationLock) CancelGenerate(); } },
 	];
 
 	for (const { type, handler } of kEventsToRegister)
