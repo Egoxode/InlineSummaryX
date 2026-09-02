@@ -1,13 +1,13 @@
 {
-	"display_name": "InlineSummary_by_ego",
+	"display_name": "InlineSummaryX",
 	"loading_order": 150,
 	"requires": [],
 	"optional": [],
 	"js": "index.js",
 	"css": "style.css",
-	"author": "ego (fork of KristyKu/InlineSummary)",
-	"version": "1.3.5",
-	"homePage": "https://github.com/Egohox/InlineSummary_by_ego",
+	"author": "Egoxode (fork of KristyKu/InlineSummary)",
+	"version": "1.3.6",
+	"homePage": "https://github.com/Egoxode/InlineSummaryX",
 	"auto_update": true,
 	"minimum_client_version": "1.10.0",
 	"hooks": {

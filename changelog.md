@@ -1,5 +1,9 @@
 # Full Changelog
 
+#### v1.3.6
+Renamed the fork to **InlineSummaryX** (`Egoxode/InlineSummaryX`). Settings key stays `InlineSummary`.
+
+
 #### v1.3.5
 The Original Messages header also shows an estimate of the summary's own tokens: `… | Summary: ~212 tokens`.
 

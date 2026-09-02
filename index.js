@@ -1773,12 +1773,12 @@ jQuery(async () =>
 	await LoadSettings(stContext);
 
 	// Setup Settings Menu. Resolve from this module's folder so GitHub installs
-	// named InlineSummary_by_ego (or any other folder) still find settings.html.
+	// named InlineSummaryX (or any other folder) still find settings.html.
 	const settingsUrls = [
 		kSettingsFile,
 		new URL("settings.html", import.meta.url).href,
 		"scripts/extensions/third-party/InlineSummary/settings.html",
-		"scripts/extensions/third-party/InlineSummary_by_ego/settings.html",
+		"scripts/extensions/third-party/InlineSummaryX/settings.html",
 	];
 
 	let settingsHtml = "";

@@ -1,4 +1,4 @@
-# InlineSummary_by_ego
+# InlineSummaryX
 
 SillyTavern extension. Select a range of chat messages, replace it with one summary, keep the originals attached to that summary, restore them later if you need to.
 
@@ -7,8 +7,8 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | | |
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
-| This fork | https://github.com/Egohox/InlineSummary_by_ego |
-| Version | **1.3.5** (from upstream 1.2.2) |
+| This fork | https://github.com/Egoxode/InlineSummaryX |
+| Version | **1.3.6** (from upstream 1.2.2) |
 
 ---
 
@@ -18,14 +18,14 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 2. Paste:
 
 ```
-https://github.com/Egohox/InlineSummary_by_ego
+https://github.com/Egoxode/InlineSummaryX
 ```
 
 3. Reload the page.
 
 Remove the original KristyKu copy first if it is already installed. Two copies will fight over the same chat buttons.
 
-The folder can be named `InlineSummary_by_ego` or `InlineSummary`. Settings are loaded from the extension URL, so either name works.
+The install folder may be named `InlineSummaryX`. Settings still live under the `InlineSummary` key, so old presets and chats keep working.
 
 ---
 
@@ -68,7 +68,7 @@ Aliases: `/ils-sum`, `/ils-summarise`, `/ils-undo`, `/ils-back`. `/ils-restore *
 
 ## Settings
 
-Open **Extensions → InlineSummary_by_ego**.
+Open **Extensions → InlineSummaryX**.
 
 ### Prompt
 
@@ -165,4 +165,4 @@ Same terms as upstream. See `license.md`.
 
 Original author: KristyKu.
 
-Fork changes: ego.
+Fork changes: Egoxode.

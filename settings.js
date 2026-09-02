@@ -83,7 +83,7 @@ export async function LoadSettings(stContext)
 		kDefaultsFile,
 		new URL("defaults.json", import.meta.url).href,
 		"scripts/extensions/third-party/InlineSummary/defaults.json",
-		"scripts/extensions/third-party/InlineSummary_by_ego/defaults.json",
+		"scripts/extensions/third-party/InlineSummaryX/defaults.json",
 	];
 	for (const url of defaultsUrls)
 	{
