@@ -26,11 +26,10 @@ const kDepthColours = [
 // Includes/API/Globals
 // =========================
 
-import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default_avatar, printMessages } from "../../../../script.js";
+import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default_avatar } from "../../../../script.js";
 import { timestampToMoment } from '../../../../scripts/utils.js';
 import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
 import { power_user } from '../../../../scripts/power-user.js';
-import { Popup } from '../../../../scripts/popup.js';
 import { getRegexedString, regex_placement } from "../../../extensions/regex/engine.js";
 
 import
@@ -92,10 +91,7 @@ async function SaveAndReloadChat(stContext, errorMsg = null)
 	try
 	{
 		await stContext.saveChat();
-		if (typeof printMessages === "function")
-			await printMessages();
-		else
-			await stContext.reloadCurrentChat();
+		await stContext.reloadCurrentChat();
 	}
 	catch (e)
 	{
@@ -1463,26 +1459,12 @@ async function RestoreCommand(namedArgs, unnamedArgs)
 	return String(restored);
 }
 
-async function ConfirmBulkSummarise(modeName, chunkSize, manualMode, namedArgs)
-{
-	if (String(namedArgs?.confirm).trim().toLowerCase() === "false")
-		return true;
-
-	return !!(await Popup.show.confirm(
-		"Inline Summary",
-		`This will repeatedly summarise the current chat in chunks of ${chunkSize} (${modeName}${manualMode ? ", manual" : ""}).<br>` +
-		`Most of the chat can be rewritten. Undo with <code>/ils-restore all</code>. Continue?`
-	));
-}
-
 async function Experiment1(namedArgs, unnamedArgs)
 {
 	const idParams = String(unnamedArgs).split(' ');
 	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
 
 	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
-	if (!await ConfirmBulkSummarise("linear", chunkSize, manualMode, namedArgs))
-		return "Cancelled.";
 
 	while (true)
 	{
@@ -1549,8 +1531,6 @@ async function Experiment2(namedArgs, unnamedArgs)
 	const chunkSize = idParams[0] ? Math.max(2, parseInt(idParams[0], 10)) : 2;
 
 	const manualMode = String(namedArgs.manual).trim().toLowerCase() == "true";
-	if (!await ConfirmBulkSummarise("stacked", chunkSize, manualMode, namedArgs))
-		return "Cancelled.";
 
 	while (true)
 	{
@@ -1802,12 +1782,6 @@ jQuery(async () =>
 				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
 				defaultValue: 'false',
 			}),
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'confirm',
-				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'true',
-			}),
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
@@ -1818,7 +1792,7 @@ jQuery(async () =>
 		],
 		helpString: `
 		<div>
-			Experimental: walk forward from the last summary and compress the chat in chunks. Asks for confirmation first.
+			Experimental: walk forward from the last summary and compress the chat in chunks. Use at your own risk.
 			Alias: <code>/ils-experimental-summarise-linear</code>
 		</div>
 		<div>
@@ -1840,12 +1814,6 @@ jQuery(async () =>
 				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
 				defaultValue: 'false',
 			}),
-			stContext.SlashCommandNamedArgument.fromProps({
-				name: 'confirm',
-				description: 'Ask before rewriting the chat. Set false to skip the prompt.',
-				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
-				defaultValue: 'true',
-			}),
 		],
 		unnamedArgumentList: [
 			stContext.SlashCommandArgument.fromProps({
@@ -1856,7 +1824,7 @@ jQuery(async () =>
 		],
 		helpString: `
 		<div>
-			Experimental: keep compressing from the start of the chat into stacked summaries. Asks for confirmation first.
+			Experimental: keep compressing from the start of the chat into stacked summaries. Use at your own risk.
 			Alias: <code>/ils-experimental-summarise-stacked</code>
 		</div>
 		<div>

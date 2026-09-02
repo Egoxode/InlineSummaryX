@@ -13,21 +13,34 @@ import { extractReasoningFromData } from '../../../../scripts/reasoning.js';
 import { sendOpenAIRequest } from '../../../../scripts/openai.js';
 import { amount_gen, createRawPrompt } from "../../../../script.js";
 import { generateTextGenWithStreaming, getTextGenGenerationData } from '../../../../scripts/textgen-settings.js';
+
+/*
 import
 {
 	generateKoboldWithStreaming,
-	getKoboldGenerationData,
 	kai_settings,
+	loadKoboldSettings,
+	getKoboldGenerationData,
 	kai_flags,
+	koboldai_settings,
+	koboldai_setting_names,
+	initKoboldSettings,
 } from '../../../../scripts/kai-settings.js';
+
 import
 {
 	generateNovelWithStreaming,
 	getNovelGenerationData,
+	getKayraMaxContextTokens,
+	loadNovelSettings,
 	nai_settings,
+	adjustNovelInstructionPrompt,
+	parseNovelAILogprobs,
 	novelai_settings,
 	novelai_setting_names,
-} from '../../../../scripts/nai-settings.js';
+	initNovelAISettings,
+} from './scripts/nai-settings.js';
+ */
 
 import
 {
@@ -164,10 +177,9 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 	let historicContex = "";
 	let histContextStart = 0;
-	const histDepth = Number(ilsSettings.historicalContextDepth ?? ilsSettings.historicalContexDepth ?? -1);
-	if (histDepth >= 0)
+	if (ilsSettings.historicalContexDepth >= 0)
 	{
-		histContextStart = msgIndex - histDepth;
+		histContextStart = msgIndex - ilsSettings.historicalContexDepth;
 		if (histContextStart < 0)
 			histContextStart = 0;
 	}
@@ -254,34 +266,36 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 			let promptParams = await getTextGenGenerationData(rawPrompt, (responseTokenLimit > 0) ? responseTokenLimit : amount_gen, false, false, null, "normal");
 			queryFuture = generateTextGenWithStreaming(promptParams, abortCtrl.signal);
 		}
-		else if ((stContext.mainApi == "kobold" || stContext.mainApi == "koboldhorde") && kai_settings.streaming_kobold && kai_flags.can_use_streaming)
+		// For other APIs, code taken from various ST scripts, incomplete and untested.
+		// Not sure how generateData maps to what generateKoboldWithStreaming/generateNovelWithStreaming expect
+		/*else if ((stContext.mainApi == "kobold" || stContext.mainApi == "koboldhorde") && kai_settings.streaming_kobold)
 		{
-			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
-			const generateData = getKoboldGenerationData(
-				rawPrompt,
-				kai_settings,
-				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
-				stContext.maxContext,
-				stContext.mainApi == "koboldhorde",
-				"normal"
-			);
-			queryFuture = generateKoboldWithStreaming(generateData, abortCtrl.signal);
+			/*
+			if (kai_settings.preset_settings === 'gui')
+			{
+				generateData = { prompt: prompt, gui_settings: true, max_length: amount_gen, max_context_length: max_context, api_server: kai_settings.api_server };
+			}
+			else
+			{
+				const isHorde = api === 'koboldhorde';
+				const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
+				generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, amount_gen, max_context, isHorde, 'quiet');
+			}
+			* /
+
+			let promptParams = null;
+			queryFuture = generateKoboldWithStreaming(promptParams, abortCtrl.signal);
 		}
-		else if (stContext.mainApi == "novel" && nai_settings.streaming_novel)
+		else if (stContext.mainApi == "novel" && novelai_settings.streaming_novel)
 		{
-			const rawPrompt = createRawPrompt(promptMsg, stContext.mainApi, false, false, null, null);
-			const novelSettings = novelai_settings?.[novelai_setting_names?.[nai_settings.preset_settings_novel]] || nai_settings;
-			const generateData = getNovelGenerationData(
-				rawPrompt,
-				novelSettings,
-				(responseTokenLimit > 0) ? responseTokenLimit : amount_gen,
-				false,
-				false,
-				null,
-				"normal"
-			);
-			queryFuture = generateNovelWithStreaming(generateData, abortCtrl.signal);
-		}
+			/*
+			const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
+			generateData = getNovelGenerationData(prompt, novelSettings, amount_gen, false, false, null, 'quiet');
+			* /
+
+			let promptParams = null;
+			queryFuture = generateNovelWithStreaming(promptParams, streamingProcessor.abortController.signal);
+		}*/
 		else
 		{
 			let promptParams = { prompt: promptMsg.map(msg => msg.content).join("\n") };
