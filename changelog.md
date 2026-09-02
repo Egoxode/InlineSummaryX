@@ -1,8 +1,5 @@
 # Full Changelog
 
-#### v1.2.8
-Removed usage screenshots and the `images` folder from the repo.
-
 #### v1.2.7
 Settings and defaults now load from the installed folder URL, so GitHub installs as `InlineSummary_by_ego` show the Extensions drawer.<br>
 Summary prompts include speaker names (prefixed in single-message mode, `name` field in multi-message mode).<br>
