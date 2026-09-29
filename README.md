@@ -10,7 +10,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egoxode/InlineSummaryX |
-| Version | **1.3.6** (from upstream 1.2.2) |
+| Version | **1.3.7** (from upstream 1.2.2) |
 
 ---
 

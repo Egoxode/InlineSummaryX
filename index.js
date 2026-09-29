@@ -86,15 +86,46 @@ function MakeSpinner()
 	return spinner;
 }
 
-async function SaveAndReloadChat(stContext, errorMsg = null)
+async function EnsureMessageInDom(msgIndex)
+{
+	if (!Number.isInteger(msgIndex) || msgIndex < 0)
+		return false;
+
+	for (let i = 0; i < 40; ++i)
+	{
+		if (document.querySelector(`.mes[mesid="${msgIndex}"]`))
+			return true;
+
+		const ctx = SillyTavern.getContext();
+		if (typeof ctx.showMoreMessages === "function")
+		{
+			await ctx.showMoreMessages();
+			continue;
+		}
+
+		const btn = document.getElementById("show_more_messages");
+		if (!btn || btn.offsetParent === null)
+			break;
+
+		btn.click();
+		await Sleep(40);
+	}
+
+	return !!document.querySelector(`.mes[mesid="${msgIndex}"]`);
+}
+
+async function SaveAndReloadChat(stContext, errorMsg = null, revealIndex = null)
 {
 	try
 	{
 		await stContext.saveChat();
-		if (typeof printMessages === "function")
-			await printMessages();
-		else
+		if (typeof stContext.reloadCurrentChat === "function")
 			await stContext.reloadCurrentChat();
+		else if (typeof printMessages === "function")
+			await printMessages();
+
+		if (Number.isInteger(revealIndex) && revealIndex >= 0)
+			await EnsureMessageInDom(revealIndex);
 	}
 	catch (e)
 	{
@@ -614,6 +645,8 @@ async function CreateEmptySummaryMessage(originalMessages, stContext)
 
 async function BringIntoView(msgIndex)
 {
+	await EnsureMessageInDom(msgIndex);
+
 	if (!gSettings.autoScroll)
 		return;
 
@@ -821,7 +854,7 @@ async function GenerateSummaryAI()
 		stContext.chat.splice(selection.start, 0, newSummaryMsg);
 		inserted = true;
 
-		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.");
+		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.", selection.start);
 		if (!chatReload1)
 		{
 			await FinishGenerate(stContext, genStart);
@@ -856,7 +889,7 @@ async function GenerateSummaryAI()
 		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: summarySlot, originalMessages: originalMessages, isManual: false, isRegenerate: false });
 		ClearSelection(stContext, false);
 
-		const chatReload2 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
+		const chatReload2 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", summarySlot);
 		if (chatReload2)
 			BringIntoView(summarySlot);
 
@@ -907,7 +940,7 @@ async function GenerateSummaryManual()
 
 	ClearSelection(stContext, false);
 
-	const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.");
+	const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", selection.start);
 
 	if (chatReload)
 		BringIntoView(selection.start);
@@ -971,7 +1004,7 @@ async function RegenerateSummary(msgIndex)
 			summaryMsg?.extra?.token_count);
 
 		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: msgIndex, originalMessages: originalMessages, isManual: false, isRegenerate: true });
-		await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.");
+		await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. New Summary could not be saved. Refreshing the page is recommended.", msgIndex);
 		BringIntoView(msgIndex);
 	}
 	finally
@@ -1172,7 +1205,7 @@ const kHeaderButtons = [
 
 			await stContext.eventSource.emit("ILS_RestoreOriginalsEnd", { msgIndex });
 
-			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Original Messages could not be restored. Refreshing the page is recommended.");
+			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Original Messages could not be restored. Refreshing the page is recommended.", msgIndex);
 
 			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;

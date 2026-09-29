@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.3.7
+After inserting a summary, reload the chat like a fresh open and keep loading older messages until the summary is actually in the DOM. Fixes long chats that only show the last N messages.
+
 #### v1.3.6
 Renamed the fork to **InlineSummaryX** (`Egoxode/InlineSummaryX`). Settings key stays `InlineSummary`.
 
