@@ -125,6 +125,7 @@ If SillyTavern supports extension lifecycle hooks, deleting the extension or usi
 
 - JSON export keeps the stored originals. Plain-text export keeps only the summary text.
 - Swipes on a summary keep the stored originals on the message. The Original Messages header stays after a swipe.
+- If only the last N messages are loaded, Start on the first *visible* message is not chat index 0. Load older messages first, or use `/ils 0 149`.
 - The Document chat style hides older message-action buttons, so Start/End are missing there. Bubbles and Flat work.
 - Token counts use SillyTavern's counter and may not match the live model.
 
@@ -155,6 +156,7 @@ Other extensions can listen on SillyTavern's event bus:
 - Original Messages header also shows an estimate of the summary's own tokens.
 - Speaker names are included in the summary prompt.
 - Settings load from the installed folder URL.
+- After a summary is inserted, the chat is fully reloaded and older messages are loaded until the summary is in the DOM. This fixes long chats that only show the last N messages.
 - Fixes from the fork: token display after reload, Original Messages token path after v1.2, legacy-recovery checkbox actually saves, rollback if the first save fails, profile-restore error text.
 
 Full history: `changelog.md`.
