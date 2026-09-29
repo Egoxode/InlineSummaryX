@@ -886,6 +886,12 @@ async function GenerateSummaryAI()
 
 		const bodyText = aborted ? SummaryAbortText(genResponse) : genResponse.mainMsg;
 		await PopulateSummaryMessage(stContext, stContext.chat[summarySlot], bodyText, aborted ? null : genResponse.reasoning);
+		const liveSummaryDiv = document.querySelector(`.mes[mesid="${summarySlot}"]`);
+		if (liveSummaryDiv)
+		{
+			ApplyTokenCountToMessageDom(liveSummaryDiv, stContext.chat[summarySlot]?.extra?.token_count);
+			UpdateOriginalMessagesHeader(liveSummaryDiv, stContext.chat[summarySlot]);
+		}
 		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: summarySlot, originalMessages: originalMessages, isManual: false, isRegenerate: false });
 		ClearSelection(stContext, false);
 
@@ -1295,6 +1301,8 @@ function RefreshMessageElements(messageDiv, msgIndex)
 					return;
 				}
 			}
+
+			UpdateOriginalMessagesHeader(messageDiv, msgObject);
 		}
 		else
 		{
@@ -1347,6 +1355,51 @@ function GetMessageFromPath(path, stContext)
 	return msg;
 }
 
+function FormatOriginalMessagesHeaderText(msgObject)
+{
+	const originals = HasOriginalMessages(msgObject)
+		? msgObject[kExtraDataKey][kOriginalMessagesKey]
+		: [];
+
+	let origTokens = 0;
+	let visMsg = 0;
+	const tokenCache = GetOriginalMessagesTokenCache(msgObject);
+	for (let i = 0; i < originals.length; ++i)
+	{
+		const msg = originals[i];
+		if (msg?.is_system)
+			continue;
+
+		visMsg++;
+		const cachedTokenCount = tokenCache ? tokenCache[i] : null;
+		if (cachedTokenCount != null)
+			origTokens += Number(cachedTokenCount) || 0;
+		else
+			origTokens += Math.ceil(String(msg?.mes || "").length / 4);
+	}
+
+	const summaryText = String(msgObject.mes || "").trim();
+	const storedSummaryTokens = Number(msgObject.extra?.token_count);
+	let summaryTokenLabel = "…";
+	if (summaryText && summaryText !== "Generating...")
+	{
+		const summaryTokens = (Number.isFinite(storedSummaryTokens) && storedSummaryTokens > 0)
+			? storedSummaryTokens
+			: Math.ceil(summaryText.length / 4);
+		summaryTokenLabel = "~" + summaryTokens;
+	}
+
+	return `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens | Summary: ${summaryTokenLabel} tokens`;
+}
+
+function UpdateOriginalMessagesHeader(messageDiv, msgObject)
+{
+	const headerLabel = messageDiv?.querySelector(".ils_msg_container_header .ils_header_label");
+	if (!headerLabel || !msgObject)
+		return;
+	headerLabel.textContent = FormatOriginalMessagesHeaderText(msgObject);
+}
+
 function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = [])
 {
 	const originals = (msgObject[kExtraDataKey] && Array.isArray(msgObject[kExtraDataKey][kOriginalMessagesKey]))
@@ -1385,37 +1438,8 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	containerHeader.appendChild(buttonsDiv);
 
 	const headerLabel = document.createElement("div");
-	let origTokens = 0;
-	let visMsg = 0;
-	for (let i = 0; i < originals.length; ++i)
-	{
-		const msg = originals[i];
-
-		if (msg?.is_system)
-			continue;
-
-		visMsg++;
-
-		const tokenCache = GetOriginalMessagesTokenCache(msgObject);
-		const cachedTokenCount = tokenCache ? tokenCache[i] : null;
-		if (cachedTokenCount != null)
-			origTokens += Number(cachedTokenCount) || 0;
-		else
-			origTokens += Math.ceil(String(msg?.mes || "").length / 4);
-	}
-
-	const summaryText = String(msgObject.mes || "").trim();
-	const storedSummaryTokens = Number(msgObject.extra?.token_count);
-	let summaryTokenLabel = "…";
-	if (summaryText && summaryText !== "Generating...")
-	{
-		const summaryTokens = (Number.isFinite(storedSummaryTokens) && storedSummaryTokens > 0)
-			? storedSummaryTokens
-			: Math.ceil(summaryText.length / 4);
-		summaryTokenLabel = "~" + summaryTokens;
-	}
-
-	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens | Summary: ${summaryTokenLabel} tokens`;
+	headerLabel.className = "ils_header_label";
+	headerLabel.textContent = FormatOriginalMessagesHeaderText(msgObject);
 
 	const expandIcon = document.createElement("div");
 	expandIcon.className = "ils_expand_icon mes_button fa-solid fa-caret-right";
@@ -1683,29 +1707,28 @@ async function OnChatChanged(data)
 		}
 	}
 
-	// Backfill missing token counts on summary messages so ST can render "Nt"
-	if (power_user.message_token_count_enabled)
+	// Backfill token counts on summaries so the header and ST "Nt" badge are not stuck on "…"
+	let didCount = false;
+	for (const msg of stContext.chat)
 	{
-		let didCount = false;
-		for (const msg of stContext.chat)
+		if (!HasOriginalMessages(msg))
+			continue;
+
+		const existing = Number(msg.extra?.token_count);
+		if (Number.isFinite(existing) && existing > 0)
 		{
-			if (!HasOriginalMessages(msg))
-				continue;
-
-			const existing = Number(msg.extra?.token_count);
-			if (Number.isFinite(existing) && existing > 0)
-			{
-				WriteExtraTokenCount(msg, existing);
-				continue;
-			}
-
-			await EnsureMessageTokenCount(msg, stContext);
-			didCount = true;
+			WriteExtraTokenCount(msg, existing);
+			continue;
 		}
 
-		if (didCount)
-			await stContext.saveChat();
+		await EnsureMessageTokenCount(msg, stContext);
+		didCount = true;
 	}
+
+	if (didCount)
+		await stContext.saveChat();
+
+	RefreshAllMessageButtons();
 }
 
 function OnMoreMsgLoaded(data)

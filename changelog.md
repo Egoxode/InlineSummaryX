@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.3.8
+Refresh the Original Messages token line after generation. The old Generating... header was reused on reload and stayed on Summary: … until the chat was reopened.
+
 #### v1.3.7
 After inserting a summary, reload the chat like a fresh open and keep loading older messages until the summary is actually in the DOM. Fixes long chats that only show the last N messages.
 
