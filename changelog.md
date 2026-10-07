@@ -1,5 +1,16 @@
 # Full Changelog
 
+#### v1.3.9
+Bug fixes.
+- Streaming OpenAI-compatible APIs: the request was never sent (an AbortController was passed where an AbortSignal is required), so every summary ended with "[Failed to get a response]". Now `abortCtrl.signal` is passed.
+- The temporary token-limit override is now always restored, also after Stop / cancel.
+- If the chat is switched while a summary is generating, the result is discarded instead of being written into the other chat.
+- A failed or cancelled Re-summarise no longer overwrites the existing summary with an error text.
+- Manual summary and the header Restore button always release the operation lock and Send buttons, even on error.
+- Loading old chats: no crash when `swipe_info` or a swipe's `extra` is missing.
+- "Use different API preset" is no longer unticked (with a "preset '' not found" warning) when no preset has been chosen yet; it is only unticked if the chosen preset no longer exists.
+- Settings presets: creating a preset with an existing name no longer wipes it; importing an invalid or non-object JSON shows an error instead of silently creating a default preset, and the same file can be imported again.
+
 #### v1.3.8
 Refresh the Original Messages token line after generation. The old Generating... header was reused on reload and stayed on Summary: … until the chat was reopened.
 

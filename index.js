@@ -186,9 +186,13 @@ function RecoverOldData(msgObject)
 		msgObject[kExtraDataKey] = msgObject.extra[kExtraDataKey];
 		delete msgObject.extra[kExtraDataKey];
 
-		for (const swipe of msgObject.swipe_info)
+		if (Array.isArray(msgObject.swipe_info))
 		{
-			delete swipe.extra[kExtraDataKey];
+			for (const swipe of msgObject.swipe_info)
+			{
+				if (swipe?.extra)
+					delete swipe.extra[kExtraDataKey];
+			}
 		}
 
 		const originalMessges = msgObject[kExtraDataKey][kOriginalMessagesKey] ?? null;
@@ -830,6 +834,7 @@ async function GenerateSummaryAI()
 
 	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
 	let inserted = false;
+	const startChatId = stContext.chatId;
 
 	try
 	{
@@ -872,6 +877,13 @@ async function GenerateSummaryAI()
 
 		stContext = SillyTavern.getContext();
 		const summarySlot = selection.start;
+
+		// The user may have switched chats while the request was running; never write into a different chat.
+		if (stContext.chatId !== startChatId || !HasOriginalMessages(stContext.chat[summarySlot]))
+		{
+			ShowWarning("The chat was changed during generation, so the summary was discarded. The original messages are still stored in the \"Generating...\" message of the original chat; use Restore Original there.");
+			return false;
+		}
 
 		const aborted = !!(genResponse.cancelled || ilsInstance.cancelRequested || !genResponse.isOk);
 		if (aborted && gSettings.restoreOriginalsOnAbort)
@@ -926,33 +938,38 @@ async function GenerateSummaryManual()
 
 	ilsInstance.operationLock = true;
 
-	// Prepare original messages and prompt
-	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+	try
+	{
+		// Prepare original messages and prompt
+		const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 
-	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
-	newSummaryMsg.mes = "_Manual Summary_\n_Edit and replace this message with a summary_";
-	newSummaryMsg.send_date = getMessageTimeStamp();
-	const extra = EnsureMessageExtra(newSummaryMsg);
-	extra.api = "custom";
-	extra.model = "Inline Summary Extension - Manual Summary";
-	WriteExtraTokenCount(newSummaryMsg, await stContext.getTokenCountAsync(newSummaryMsg.mes));
+		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
+		newSummaryMsg.mes = "_Manual Summary_\n_Edit and replace this message with a summary_";
+		newSummaryMsg.send_date = getMessageTimeStamp();
+		const extra = EnsureMessageExtra(newSummaryMsg);
+		extra.api = "custom";
+		extra.model = "Inline Summary Extension - Manual Summary";
+		WriteExtraTokenCount(newSummaryMsg, await stContext.getTokenCountAsync(newSummaryMsg.mes));
 
-	// Delete Originals
-	stContext.chat.splice(selection.start, originalMessages.length);
-	// Add Summary
-	stContext.chat.splice(selection.start, 0, newSummaryMsg);
+		// Delete Originals
+		stContext.chat.splice(selection.start, originalMessages.length);
+		// Add Summary
+		stContext.chat.splice(selection.start, 0, newSummaryMsg);
 
-	await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: true, isRegenerate: false });
+		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: true, isRegenerate: false });
 
-	ClearSelection(stContext, false);
+		ClearSelection(stContext, false);
 
-	const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", selection.start);
+		const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", selection.start);
 
-	if (chatReload)
-		BringIntoView(selection.start);
-	ilsInstance.operationLock = false;
-
-	return chatReload;
+		if (chatReload)
+			BringIntoView(selection.start);
+		return chatReload;
+	}
+	finally
+	{
+		ilsInstance.operationLock = false;
+	}
 }
 
 async function RegenerateSummary(msgIndex)
@@ -971,6 +988,7 @@ async function RegenerateSummary(msgIndex)
 	stContext.deactivateSendButtons();
 
 	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
+	const startChatId = stContext.chatId;
 
 	try
 	{
@@ -995,16 +1013,23 @@ async function RegenerateSummary(msgIndex)
 		const genResponse = await FinishGenerate(stContext, genStart);
 		HideGeneratingToast();
 
-		const aborted = !!(genResponse.cancelled || ilsInstance.cancelRequested || !genResponse.isOk);
-		if (aborted && gSettings.restoreOriginalsOnAbort)
+		stContext = SillyTavern.getContext();
+		if (stContext.chatId !== startChatId || stContext.chat[msgIndex] !== summaryMsg)
 		{
-			await SaveAndReloadChat(stContext, "Failed to reload chat after aborting re-summarise.");
+			ShowWarning("The chat was changed during generation, so the new summary was discarded.");
+			return;
+		}
+
+		// A failed or cancelled re-summarise must never overwrite the existing summary with an error text.
+		const aborted = !!(genResponse.cancelled || ilsInstance.cancelRequested || !genResponse.isOk);
+		if (aborted)
+		{
+			await SaveAndReloadChat(stContext, "Failed to reload chat after aborting re-summarise.", msgIndex);
 			toastr.info("[ILS] Re-summarise aborted. Existing summary was kept.");
 			return;
 		}
 
-		const bodyText = aborted ? SummaryAbortText(genResponse) : genResponse.mainMsg;
-		await PopulateSummaryMessage(stContext, summaryMsg, bodyText, aborted ? null : genResponse.reasoning);
+		await PopulateSummaryMessage(stContext, summaryMsg, genResponse.mainMsg, genResponse.reasoning);
 		ApplyTokenCountToMessageDom(
 			document.querySelector(`.mes[mesid="${msgIndex}"]`),
 			summaryMsg?.extra?.token_count);
@@ -1199,22 +1224,27 @@ const kHeaderButtons = [
 			ilsInstance.operationLock = true;
 			stContext.deactivateSendButtons();
 
-			await stContext.eventSource.emit("ILS_RestoreOriginalsBegin", { msgIndex });
+			try
+			{
+				await stContext.eventSource.emit("ILS_RestoreOriginalsBegin", { msgIndex });
 
-			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
+				const summaryMsg = GetMessageByIndex(msgIndex, stContext);
 
-			// Technically this being false should be an error, since we shouldn't be able to click restore
-			// on a message that doesn't have Original Messages.
-			RestoreOriginalsInPlace(stContext, msgIndex);
+				// Technically this being false should be an error, since we shouldn't be able to click restore
+				// on a message that doesn't have Original Messages.
+				RestoreOriginalsInPlace(stContext, msgIndex);
 
-			ClearSelection(stContext, false);
+				ClearSelection(stContext, false);
 
-			await stContext.eventSource.emit("ILS_RestoreOriginalsEnd", { msgIndex });
+				await stContext.eventSource.emit("ILS_RestoreOriginalsEnd", { msgIndex });
 
-			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Original Messages could not be restored. Refreshing the page is recommended.", msgIndex);
-
-			stContext.activateSendButtons();
-			ilsInstance.operationLock = false;
+				await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Original Messages could not be restored. Refreshing the page is recommended.", msgIndex);
+			}
+			finally
+			{
+				stContext.activateSendButtons();
+				ilsInstance.operationLock = false;
+			}
 
 			BringIntoView(msgIndex);
 		}

@@ -245,7 +245,7 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 			}
 
 			// Type 'normal' because... no idea, I couldn't find documentation and 'quiet' disables streaming.
-			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl, {});
+			queryFuture = sendOpenAIRequest("normal", promptMsg, abortCtrl.signal, {});
 		}
 		else if (stContext.mainApi == "textgenerationwebui" && stContext.textCompletionSettings.streaming)
 		{
@@ -312,6 +312,12 @@ export async function FinishGenerate(stContext, genStart)
 
 	const ilsInstance = GetILSInstance();
 
+	const restoreTokenLimit = () =>
+	{
+		if (stContext.mainApi == "openai" && genStart.maxResponseTokens > 0)
+			stContext.chatCompletionSettings.openai_max_tokens = genStart.maxResponseTokens;
+	};
+
 	try
 	{
 		if (ilsInstance.cancelRequested)
@@ -344,6 +350,7 @@ export async function FinishGenerate(stContext, genStart)
 		const cancelled = ilsInstance.cancelRequested || e?.name === "AbortError";
 		if (cancelled)
 		{
+			restoreTokenLimit();
 			return { mainMsg: "", reasoning: null, isOk: false, cancelled: true };
 		}
 
@@ -354,11 +361,7 @@ export async function FinishGenerate(stContext, genStart)
 		isOk = false;
 	}
 
-	// Restore token limit
-	if (stContext.mainApi == "openai" && genStart.maxResponseTokens > 0)
-	{
-		stContext.chatCompletionSettings.openai_max_tokens = genStart.maxResponseTokens;
-	}
+	restoreTokenLimit();
 
 	return { mainMsg: responseText, reasoning: reasoningText, isOk: isOk, cancelled: false };
 }

@@ -255,6 +255,14 @@ export async function OnSettingSpNew()
 	// Create new Entry
 	stContext.extensionSettings[kExtensionName] ??= {};
 	let rootSettings = stContext.extensionSettings[kExtensionName];
+
+	// Never overwrite an existing preset with an empty one
+	if (spName === "Default" || Object.hasOwn(rootSettings.spData ?? {}, spName))
+	{
+		ShowError("A preset named '" + spName + "' already exists. Pick a different name.");
+		return;
+	}
+
 	rootSettings.spName = spName;
 	rootSettings.spData ??= {};
 	rootSettings.spData[rootSettings.spName] = {};
@@ -307,6 +315,7 @@ export async function OnSettingSpImportFile(e)
 
 	const file = e.target.files[0];
 	const fullName = file.name;
+	e.target.value = ""; // allow picking the same file again
 
 	if (!fullName.toLowerCase().endsWith(".json"))
 	{
@@ -317,29 +326,34 @@ export async function OnSettingSpImportFile(e)
 	const stContext = SillyTavern.getContext();
 	let baseName = fullName.slice(0, -5);
 
-	let data = {};
+	let data = null;
+	try
+	{
+		data = JSON.parse(await file.text());
+	}
+	catch (err)
+	{
+		ShowError("Failed to read or parse the preset file.", err);
+		return;
+	}
+
+	if (!data || typeof data !== "object" || Array.isArray(data))
+	{
+		ShowError("The preset file must contain a JSON object.");
+		return;
+	}
 
 	stContext.extensionSettings[kExtensionName] ??= {};
 	let rootSettings = stContext.extensionSettings[kExtensionName];
 	rootSettings.spData ??= {};
 
-	if (rootSettings.spData[baseName] || baseName === "Default")
+	if (Object.hasOwn(rootSettings.spData, baseName) || baseName === "Default")
 	{
 		let i = 1;
-		while (rootSettings.spData[`${baseName} (${i})`])
+		while (Object.hasOwn(rootSettings.spData, `${baseName} (${i})`))
 			++i;
 
 		baseName = `${baseName} (${i})`;
-	}
-
-	try
-	{
-		const text = await file.text();
-		data = JSON.parse(text);
-	}
-	catch (err)
-	{
-		console.error("Failed to read or parse file:", err);
 	}
 
 	let newSettings = {};
@@ -574,8 +588,9 @@ export async function UpdateSettingsUI()
 			{
 				presetDropdown.val(presetName);
 			}
-			else
+			else if (presetName != "")
 			{
+				// A preset was chosen but no longer exists. An empty name just means "not chosen yet": keep the checkbox as is.
 				if (gSettings.useDifferentApiPreset)
 				{
 					gSettings.useDifferentApiPreset = false;
