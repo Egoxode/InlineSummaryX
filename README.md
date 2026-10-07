@@ -10,7 +10,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egoxode/InlineSummaryX |
-| Version | **1.3.8** (from upstream 1.2.2) |
+| Version | **1.3.9** (based on upstream 1.2.2) |
 
 ---
 
@@ -43,13 +43,15 @@ The install folder may be named `InlineSummaryX`. Settings still live under the 
 
 If generation is cancelled or fails, the `Generating...` message stays and the error (or a cancel note) is written into it. Originals are still inside the message — use **Restore Original** to unpack them. Turn on **Restore originals if summary generation is cancelled or fails** if you want the range unpacked automatically instead.
 
+If you switch to another chat while a summary is generating, the result is discarded and nothing is written into the other chat. The originals stay in the `Generating...` message of the original chat.
+
 ### Work with an existing summary
 
 Every summary has an **Original Messages** header.
 
 - Click the header (not the buttons) to expand or collapse the stored originals. Token counts are estimates, for example: `Original Messages: 8/8 used | ~1540 tokens | Summary: ~212 tokens`. While the summary is still generating, the last number is `…`.
 - **Restore Original and Delete Summary** puts the originals back and removes the summary.
-- **Re-Summarise (AI)** generates a new summary from the stored originals.
+- **Re-Summarise (AI)** generates a new summary from the stored originals. If it is cancelled or fails, the existing summary is kept unchanged.
 
 Summaries are normal chat messages: they go into later prompts, they can be edited, and they can be summarised again. A nested summary uses the summary text, not the hidden originals.
 
@@ -64,7 +66,7 @@ Summaries are normal chat messages: they go into later prompts, they can be edit
 | `/ils-restore 5` | Unpack the 5 newest summaries |
 | `/ils-restore all` | Unpack every summary in this chat, including nested ones |
 
-Aliases: `/ils-sum`, `/ils-summarise`, `/ils-undo`, `/ils-back`. `/ils-restore *` is the same as `all`.
+Aliases: `/ils-sum`, `/ils-summarise`, `/ils-summarize` for `/ils`; `/ils-undo`, `/ils-back` for `/ils-restore`. `*` is the same as `all`.
 
 ---
 
@@ -76,7 +78,7 @@ Open **Extensions → InlineSummaryX**.
 
 | Setting | Meaning |
 | :--- | :--- |
-| Setting Presets | Named presets; new / delete / import / export / reset |
+| Setting Presets | Named presets; new / delete / import / export / reset. New and import never overwrite an existing preset (import adds a number to the name) |
 | Summary Prompt Start | The full instruction sent to the model. Put extra rules here |
 | Historical Context Size | How many messages *before* the range to include as background. `-1` fills the context window, `0` includes none |
 | Historical Context Start / End Marker | Wrappers around that background block |
@@ -89,7 +91,7 @@ The prompt is built in this order: start prompt + start marker → historical me
 | Setting | Meaning |
 | :--- | :--- |
 | Use specified Connection Profile | Switch API profile only while summarising |
-| Use specified API Preset | Switch generation preset only while summarising |
+| Use specified API Preset | Switch generation preset only while summarising. Stays ticked if no preset is chosen yet (nothing is switched); it is unticked only if the chosen preset no longer exists |
 
 Unsaved edits to the current profile or preset are discarded when the extension swaps them.
 
@@ -128,6 +130,7 @@ If SillyTavern supports extension lifecycle hooks, deleting the extension or usi
 - If only the last N messages are loaded, Start on the first *visible* message is not chat index 0. Load older messages first, or use `/ils 0 149`.
 - The Document chat style hides older message-action buttons, so Start/End are missing there. Bubbles and Flat work.
 - Token counts use SillyTavern's counter and may not match the live model.
+- A range needs at least two messages. This fork is based on upstream 1.2.2 and does not include upstream 1.2.3 (alternative preset slots, single-message summaries).
 
 ---
 
@@ -158,6 +161,7 @@ Other extensions can listen on SillyTavern's event bus:
 - Settings load from the installed folder URL.
 - After a summary is inserted, the chat is fully reloaded and older messages are loaded until the summary is in the DOM. This fixes long chats that only show the last N messages.
 - Fixes from the fork: token display after reload, Original Messages token path after v1.2, legacy-recovery checkbox actually saves, rollback if the first save fails, profile-restore error text.
+- Fixes in 1.3.9: summaries work again with streaming OpenAI-compatible APIs (the request was never sent); the temporary token limit is always restored; chat switch during generation is safe; a failed Re-Summarise keeps the old summary; the operation lock is always released after errors; old chats without swipe data load without errors; settings presets are no longer overwritten by New / Import, and a bad import shows an error.
 
 Full history: `changelog.md`.
 
