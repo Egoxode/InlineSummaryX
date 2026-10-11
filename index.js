@@ -534,6 +534,7 @@ async function CollectChatTargets(stContext)
 async function FlattenOtherChatsOnDisk(stContext)
 {
 	let rewritten = 0;
+	let failed = 0;
 	const currentAvatar = stContext.characters?.[stContext.characterId]?.avatar || "";
 	const currentChatId = String(stContext.chatId || "");
 	const currentGroup = stContext.groupId || "";
@@ -560,11 +561,12 @@ async function FlattenOtherChatsOnDisk(stContext)
 		}
 		catch (e)
 		{
+			failed++;
 			console.warn("[ILS] Failed to flatten saved chat", target, e);
 		}
 	}
 
-	return rewritten;
+	return { rewritten, failed };
 }
 
 async function FlattenCurrentChatForUninstall(reason)
@@ -579,7 +581,7 @@ async function FlattenCurrentChatForUninstall(reason)
 		let others = 0;
 		try
 		{
-			others = await FlattenOtherChatsOnDisk(SillyTavern.getContext());
+			others = (await FlattenOtherChatsOnDisk(SillyTavern.getContext())).rewritten;
 		}
 		catch (e)
 		{
@@ -600,6 +602,56 @@ async function FlattenCurrentChatForUninstall(reason)
 		console.error("[ILS] Failed to flatten chats on " + reason, e);
 		return 0;
 	}
+}
+
+// Manual version of the uninstall pass: the open chat and every saved chat on disk.
+// SillyTavern waits only a few seconds for the delete / clean hooks and then reloads the page,
+// so with many chats only this button is sure to unpack everything.
+async function UnpackAllChats()
+{
+	const ilsInstance = GetILSInstance();
+	if (ilsInstance.operationLock)
+	{
+		ShowWarning("Another summary operation is running. Try again when it has finished.");
+		return null;
+	}
+
+	const progress = toastr.info("Unpacking summaries in all chats... Do not reload or close the page.", "[ILS]",
+		{ timeOut: 0, extendedTimeOut: 0, tapToDismiss: false });
+	let restored = 0;
+	let others = { rewritten: 0, failed: 0 };
+	try
+	{
+		const stContext = SillyTavern.getContext();
+		if (Array.isArray(stContext.chat) && FindLastSummaryIndex(stContext) >= 0)
+			restored = await RestoreSummaries(Infinity, { save: true, reload: true });
+
+		ilsInstance.operationLock = true;
+		SillyTavern.getContext().deactivateSendButtons();
+		try
+		{
+			others = await FlattenOtherChatsOnDisk(SillyTavern.getContext());
+		}
+		finally
+		{
+			SillyTavern.getContext().activateSendButtons();
+			ilsInstance.operationLock = false;
+		}
+	}
+	finally
+	{
+		toastr.clear(progress);
+	}
+
+	if (others.failed > 0)
+		ShowError("Unpacked " + restored + " summar" + (restored === 1 ? "y" : "ies") + " in the open chat and rewrote " + others.rewritten +
+			" other chat file(s), but " + others.failed + " chat file(s) could not be processed. See the browser console, then press the button again.");
+	else if (restored === 0 && others.rewritten === 0)
+		toastr.info("[ILS] No summaries found in any chat.");
+	else
+		toastr.success("[ILS] Unpacked " + restored + " summar" + (restored === 1 ? "y" : "ies") + " in the open chat and rewrote " +
+			others.rewritten + " other chat file(s). No summaries are left.");
+	return { restored, ...others };
 }
 
 export async function onDelete()
@@ -772,6 +824,17 @@ function HideGeneratingToast()
 	}
 }
 
+// Same as SillyTavern's Stop button: it also aborts non-streaming requests, which
+// SillyTavern's generateRawData only stops on GENERATION_STOPPED (that event calls CancelGenerate).
+function StopSummaryRequest()
+{
+	const stopGeneration = SillyTavern.getContext().stopGeneration;
+	if (typeof stopGeneration === "function")
+		stopGeneration();
+	else
+		CancelGenerate();
+}
+
 function ShowGeneratingToast()
 {
 	HideGeneratingToast();
@@ -784,7 +847,7 @@ function ShowGeneratingToast()
 			extendedTimeOut: 0,
 			tapToDismiss: false,
 			closeButton: true,
-			onclick: () => CancelGenerate(),
+			onclick: StopSummaryRequest,
 		}
 	);
 }
@@ -834,6 +897,8 @@ async function GenerateSummaryAI()
 
 	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
 	let inserted = false;
+	let genStart = null;
+	let genFinished = false;
 	const startChatId = stContext.chatId;
 
 	try
@@ -852,7 +917,7 @@ async function GenerateSummaryAI()
 		}
 
 		// Start the request, then immediately replace the range with a Generating... message
-		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+		genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 
 		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
 		stContext.chat.splice(selection.start, originalMessages.length);
@@ -862,9 +927,24 @@ async function GenerateSummaryAI()
 		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.", selection.start);
 		if (!chatReload1)
 		{
+			// The summary cannot be written anyway: stop the request instead of waiting for the whole response.
+			StopSummaryRequest();
 			await FinishGenerate(stContext, genStart);
+			genFinished = true;
 			try { RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start); }
 			catch (e) { ShowError("Failed to roll back original messages after a save error.", e); }
+			return false;
+		}
+
+		// SillyTavern's saveChat does not throw when saving fails (it only shows its own toast). The reload
+		// then brings the chat back from disk without the Generating... message, so the summary has nowhere to go.
+		const reloaded = SillyTavern.getContext();
+		if (reloaded.chatId === startChatId && !HasOriginalMessages(reloaded.chat[selection.start]))
+		{
+			ShowError("The chat could not be saved, so the summary was not created. The original messages were not changed.");
+			StopSummaryRequest();
+			await FinishGenerate(stContext, genStart);
+			genFinished = true;
 			return false;
 		}
 
@@ -873,6 +953,7 @@ async function GenerateSummaryAI()
 		ShowGeneratingToast();
 
 		const genResponse = await FinishGenerate(stContext, genStart);
+		genFinished = true;
 		HideGeneratingToast();
 
 		stContext = SillyTavern.getContext();
@@ -915,6 +996,13 @@ async function GenerateSummaryAI()
 	}
 	finally
 	{
+		// An exception after the request was started: nobody will read the response, so stop it.
+		// FinishGenerate still runs: it ends the stopped request and restores the temporary token limit.
+		if (genStart && !genFinished)
+		{
+			StopSummaryRequest();
+			await FinishGenerate(stContext, genStart);
+		}
 		HideGeneratingToast();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
@@ -988,6 +1076,8 @@ async function RegenerateSummary(msgIndex)
 	stContext.deactivateSendButtons();
 
 	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
+	let genStart = null;
+	let genFinished = false;
 	const startChatId = stContext.chatId;
 
 	try
@@ -1005,12 +1095,13 @@ async function RegenerateSummary(msgIndex)
 			return;
 		}
 
-		const genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
+		genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 		summaryMsg[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 		AttachSpinnerToMessage(msgIndex);
 		ShowGeneratingToast();
 
 		const genResponse = await FinishGenerate(stContext, genStart);
+		genFinished = true;
 		HideGeneratingToast();
 
 		stContext = SillyTavern.getContext();
@@ -1040,6 +1131,13 @@ async function RegenerateSummary(msgIndex)
 	}
 	finally
 	{
+		// An exception after the request was started: nobody will read the response, so stop it.
+		// FinishGenerate still runs: it ends the stopped request and restores the temporary token limit.
+		if (genStart && !genFinished)
+		{
+			StopSummaryRequest();
+			await FinishGenerate(stContext, genStart);
+		}
 		HideGeneratingToast();
 		await SwapBackFromSummaryProfile(SillyTavern.getContext(), profileSwap);
 		SillyTavern.getContext().activateSendButtons();
@@ -2014,6 +2112,7 @@ jQuery(async () =>
 	}));
 
 	GetILSInstance().RestoreSummaries = RestoreSummaries;
+	GetILSInstance().UnpackAllChats = UnpackAllChats;
 
 	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
 		name: "ils-undo",

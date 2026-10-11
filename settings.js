@@ -397,6 +397,25 @@ export async function OnSettingRestoreAll()
 		toastr.success("[ILS] Restored originals from " + restored + " summar" + (restored === 1 ? "y." : "ies."));
 }
 
+export async function OnSettingUnpackAllChats()
+{
+	const confirm = await Popup.show.confirm(
+		"Unpack summaries in all chats?",
+		"This replaces every Inline Summary in all character and group chats with the stored original messages, including chats that are not open. Use it before uninstalling the extension. With many chats it can take a while."
+	);
+	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
+		return;
+
+	const unpackFn = GetILSInstance().UnpackAllChats;
+	if (typeof unpackFn !== "function")
+	{
+		ShowError("Unpack function is not ready yet. Reload the page and try again.");
+		return;
+	}
+
+	await unpackFn();
+}
+
 export async function OnSettingSpResetToDefault()
 {
 	const confirm = await Popup.show.confirm("Confirmation", "Are you sure you want to reset '" + gSpName + "' to default settings?");
@@ -637,6 +656,7 @@ export function SetupOnSettingChangeEvents()
 	$("#ils_setting_sp_export").on("click", OnSettingSpExport);
 	$("#ils_setting_sp_reset_default").on("click", OnSettingSpResetToDefault);
 	$("#ils_setting_restore_all").on("click", OnSettingRestoreAll);
+	$("#ils_setting_unpack_all_chats").on("click", OnSettingUnpackAllChats);
 
 	$("#ils_setting_sp_import_file").on("change", OnSettingSpImportFile);
 }

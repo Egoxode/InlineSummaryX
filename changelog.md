@@ -1,5 +1,26 @@
 # Full Changelog
 
+#### v1.3.14
+New button: **Unpack summaries in all chats** (Settings → Misc). It unpacks every summary in the open chat and in all saved character and group chats on disk, including chats that are not open, and reports how many chat files were rewritten and how many failed.
+- Why: on Delete / Clean extension data SillyTavern waits only 5 seconds for the extension and then reloads the page. The extension reads every chat on disk, so with many chats (about 1000 in tests) the automatic unpacking was cut off and part of the chats kept their summaries. Press the button before uninstalling; the automatic pass on Delete / Clean stays as a fallback.
+
+#### v1.3.13
+Bug fixes.
+- If the chat could not be saved when an AI summary started, the extension waited for the whole response with the Send buttons locked and then showed a wrong "The chat was changed during generation" warning. SillyTavern only shows its own toast when saving fails, so the extension now checks after the reload that the "Generating..." message is really there; if not, it stops the request at once and says that the summary was not created. The original messages stay unchanged.
+- After a failure that stopped the request (v1.3.12), the temporary token limit of OpenAI-compatible APIs was not restored, so the summary limit stayed in the main chat settings. It is now restored as after Stop.
+
+#### v1.3.12
+Bug fix.
+- If something failed after the summary request had been sent (AI Summary or Re-Summarise), the request was not stopped: the backend kept generating a response that nobody would read. Now it is stopped the same way as with the Stop button.
+
+#### v1.3.11
+Bug fix.
+- When the backend returned an error, the browser console also showed an "Uncaught (in promise)" error: the request starts before the chat is saved and is awaited only afterwards. The request is now marked as handled when it starts; the error text is still written into the summary as before.
+
+#### v1.3.10
+Bug fix.
+- Clicking the "Generating summary…" toast did not stop the request when streaming was off (Text Completion, KoboldAI, NovelAI): the summary stayed locked until the model finished, and only then was it marked as cancelled. The toast now does the same as SillyTavern's Stop button, which cancels at once in every mode.
+
 #### v1.3.9
 Bug fixes.
 - Streaming OpenAI-compatible APIs: the request was never sent (an AbortController was passed where an AbortSignal is required), so every summary ended with "[Failed to get a response]". Now `abortCtrl.signal` is passed.

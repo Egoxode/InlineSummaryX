@@ -10,7 +10,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egoxode/InlineSummaryX |
-| Version | **1.3.9** (based on upstream 1.2.2) |
+| Version | **1.3.14** (based on upstream 1.2.2) |
 
 ---
 
@@ -114,12 +114,9 @@ Unsaved edits to the current profile or preset are discarded when the extension 
 
 Summaries are normal chat messages. If you remove the extension without unpacking them, later chats still show the summary text and the originals stay buried in the chat file with no UI to restore them.
 
-Before uninstalling:
+Before uninstalling, open **Settings → Misc Settings** and press **Unpack summaries in all chats**. It unpacks the open chat and rewrites every character and group chat file on disk that still contains stored originals, including chats that are not open. Wait for the result message: it tells how many chat files were rewritten, and whether any could not be processed (then press the button again).
 
-1. Open every chat that still has summaries.
-2. Run `/ils-restore all`, or click **Restore all originals in this chat**.
-
-If SillyTavern supports extension lifecycle hooks, deleting the extension or using **Clean extension data** unpacks the open chat and then rewrites other character/group chat files on disk that still contain stored originals. If that pass cannot finish before the page reloads, open remaining chats and run `/ils-restore all`.
+Deleting the extension or using **Clean extension data** also tries to do this, but SillyTavern reloads the page about 5 seconds after calling the extension. With many chats (about 1000 in tests) that pass is cut off and some chats keep their summaries, so use the button first.
 
 ---
 
@@ -162,6 +159,11 @@ Other extensions can listen on SillyTavern's event bus:
 - After a summary is inserted, the chat is fully reloaded and older messages are loaded until the summary is in the DOM. This fixes long chats that only show the last N messages.
 - Fixes from the fork: token display after reload, Original Messages token path after v1.2, legacy-recovery checkbox actually saves, rollback if the first save fails, profile-restore error text.
 - Fixes in 1.3.9: summaries work again with streaming OpenAI-compatible APIs (the request was never sent); the temporary token limit is always restored; chat switch during generation is safe; a failed Re-Summarise keeps the old summary; the operation lock is always released after errors; old chats without swipe data load without errors; settings presets are no longer overwritten by New / Import, and a bad import shows an error.
+- Fix in 1.3.10: clicking the Generating toast now cancels at once with every API, like Stop. Before, with streaming off it waited until the model finished.
+- Fix in 1.3.11: a backend error no longer leaves an "Uncaught (in promise)" error in the browser console.
+- Fix in 1.3.12: if something fails after the summary request is sent, the request is stopped instead of running to the end in the backend.
+- Fixes in 1.3.13: if the chat cannot be saved when a summary starts, the request is stopped at once instead of waiting for the whole response (and no wrong "chat was changed" warning); the temporary token limit is restored after such failures.
+- Added in 1.3.14: **Unpack summaries in all chats** button (Settings → Misc) for a complete unpack before uninstalling.
 
 Full history: `changelog.md`.
 

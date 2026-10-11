@@ -298,6 +298,11 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 		isOk = false;
 	}
 
+	// The request keeps running while the chat is saved and reloaded; FinishGenerate awaits it afterwards.
+	// Mark the promise as handled now, so a backend error is not reported as an unhandled rejection
+	// in the meantime. The error itself still reaches FinishGenerate: awaiting the promise rethrows it.
+	Promise.resolve(queryFuture).catch(() => {});
+
 	return { generateQuery: queryFuture, isOk: isOk, errorText: errText, maxResponseTokens: oldMaxTokens, ac: abortCtrl };
 }
 
