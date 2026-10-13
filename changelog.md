@@ -1,5 +1,11 @@
 # Full Changelog
 
+#### v1.3.15
+Bug fixes.
+- With both "use a different connection profile" and "use a different preset" on, every summary left the summary profile's preset selected in your own profile (for example Deterministic instead of Universal-Light). The preset is now restored first, while the summary profile is still active, and then the profile. The summary preset is taken for the API of the summary profile.
+- With a Text Completion preset chosen for summaries, the settings panel claimed on every page load (and on every API change) that the preset was "not found" and switched "use a different preset" off. Text Completion preset names are now checked correctly.
+- "Enable Regex on final summary" applied only regex scripts with "Run On Edit" on (off by default in SillyTavern). The summary now goes through the same AI Output scripts as a normal AI reply.
+
 #### v1.3.14
 New button: **Unpack summaries in all chats** (Settings → Misc). It unpacks every summary in the open chat and in all saved character and group chats on disk, including chats that are not open, and reports how many chat files were rewritten and how many failed.
 - Why: on Delete / Clean extension data SillyTavern waits only 5 seconds for the extension and then reloads the page. The extension reads every chat on disk, so with many chats (about 1000 in tests) the automatic unpacking was cut off and part of the chats kept their summaries. Press the button before uninstalling; the automatic pass on Delete / Clean stays as a fallback.

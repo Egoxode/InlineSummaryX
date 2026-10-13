@@ -603,7 +603,9 @@ export async function UpdateSettingsUI()
 					break
 			}
 
-			if (presetName != "" && presetList.includes(presetName))
+			// Text Gen lists names by index (Object.keys gives "0", "1"...), the others list names as keys.
+			const knownNames = apiMode === "textgenerationwebui" ? presetList.map(id => presetNames[id]) : presetList;
+			if (presetName != "" && knownNames.includes(presetName))
 			{
 				presetDropdown.val(presetName);
 			}

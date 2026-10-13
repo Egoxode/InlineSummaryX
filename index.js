@@ -719,11 +719,7 @@ async function BringIntoView(msgIndex)
 
 async function SwapToSummaryProfile(stContext, ilsInstance)
 {
-	const apiMode = stContext.mainApi?.toLowerCase();
-	const presetName = gSettings?.apiPresets?.[apiMode] ?? "";
-
 	let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>" && ilsInstance.connProfEnabled;
-	let useDifferentApiPreset = gSettings.useDifferentApiPreset && presetName !== "" && ilsInstance.connProfEnabled;
 
 	let success = true;
 
@@ -741,6 +737,11 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 			success = false;
 		}
 	}
+
+	// Presets belong to an API: take the summary preset of the API that is active now (after the profile swap).
+	const apiMode = stContext.mainApi?.toLowerCase();
+	const presetName = gSettings?.apiPresets?.[apiMode] ?? "";
+	let useDifferentApiPreset = gSettings.useDifferentApiPreset && presetName !== "" && ilsInstance.connProfEnabled;
 
 	if (useDifferentApiPreset && success)
 	{
@@ -761,21 +762,23 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 
 async function SwapBackFromSummaryProfile(stContext, profileSwap)
 {
-	if (profileSwap.useDifferentProfile)
-	{
-		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + profileSwap.prevProfile);
-		if (swapResult.isError)
-		{
-			ShowError("Failed to restore connection profile to:\n" + profileSwap.prevProfile + "\nPlease check the profile manually.");
-		}
-	}
-
+	// Reverse order: the preset first, while the summary profile (and its API) is still active.
+	// Restoring the profile first would apply the summary profile's preset name to the user's own profile.
 	if (profileSwap.useDifferentApiPreset)
 	{
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + profileSwap.prevPreset);
 		if (swapResult.isError)
 		{
 			ShowError("Failed to restore preset to:\n" + profileSwap.prevPreset + "\nPlease check the preset manually.");
+		}
+	}
+
+	if (profileSwap.useDifferentProfile)
+	{
+		const swapResult = await SillyTavern.getContext().executeSlashCommandsWithOptions("/profile " + profileSwap.prevProfile);
+		if (swapResult.isError)
+		{
+			ShowError("Failed to restore connection profile to:\n" + profileSwap.prevProfile + "\nPlease check the profile manually.");
 		}
 	}
 }
@@ -788,10 +791,11 @@ async function PopulateSummaryMessage(stContext, summaryMsg, msgText, msgReasoni
 	const extra = EnsureMessageExtra(summaryMsg);
 
 	if (msgText != null)
-		summaryMsg.mes = runRegex ? getRegexedString(msgText, regex_placement.AI_OUTPUT, { isPrompt: false, isEdit: true, depth: 0 }) : msgText;
+		// Same call as SillyTavern for a new AI reply: every AI Output script applies, not only "Run On Edit" ones.
+		summaryMsg.mes = runRegex ? getRegexedString(msgText, regex_placement.AI_OUTPUT) : msgText;
 
 	if (msgReasoning != null)
-		extra.reasoning = runRegex ? getRegexedString(msgReasoning, regex_placement.REASONING, { isPrompt: false, isEdit: true, depth: 0 }) : msgReasoning;
+		extra.reasoning = runRegex ? getRegexedString(msgReasoning, regex_placement.REASONING) : msgReasoning;
 
 	summaryMsg.send_date = getMessageTimeStamp();
 	extra.api = getGeneratingApi();

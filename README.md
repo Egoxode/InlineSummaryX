@@ -10,7 +10,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egoxode/InlineSummaryX |
-| Version | **1.3.14** (based on upstream 1.2.2) |
+| Version | **1.3.15** (based on upstream 1.2.2) |
 
 ---
 
@@ -91,7 +91,7 @@ The prompt is built in this order: start prompt + start marker → historical me
 | Setting | Meaning |
 | :--- | :--- |
 | Use specified Connection Profile | Switch API profile only while summarising |
-| Use specified API Preset | Switch generation preset only while summarising. Stays ticked if no preset is chosen yet (nothing is switched); it is unticked only if the chosen preset no longer exists |
+| Use specified API Preset | Switch generation preset only while summarising (the preset chosen for the API in use; with a different Connection Profile, the API of that profile). Afterwards the preset is restored first, then the profile. Stays ticked if no preset is chosen yet (nothing is switched); it is unticked only if the chosen preset no longer exists |
 
 Unsaved edits to the current profile or preset are discarded when the extension swaps them.
 
@@ -102,7 +102,7 @@ Unsaved edits to the current profile or preset are discarded when the extension 
 | Auto Scroll to summarised message | Jump to the summary after generation |
 | Restore originals if summary generation is cancelled or fails | Off (default): keep the placeholder and write the error into it. On: unpack the original messages |
 | Enable Regex when summarising messages | Run SillyTavern Regex on source messages before the request |
-| Enable Regex on final summary | Run SillyTavern Regex on the finished summary |
+| Enable Regex on final summary | Run SillyTavern Regex on the finished summary, like on a normal AI reply (AI Output and Reasoning scripts; "Run On Edit" is not needed) |
 | Enable Multi Message Prompt | Send the prompt as separate turns instead of one blob |
 | Summary message sender name | Author on the summary: User / Character / Custom |
 | Restore legacy summary messages | One-time repair for chats created before upstream v1.2 |
