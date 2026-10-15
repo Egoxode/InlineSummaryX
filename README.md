@@ -10,7 +10,7 @@ Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 | :--- | :--- |
 | Upstream | https://github.com/Kristyku/InlineSummary |
 | This fork | https://github.com/Egoxode/InlineSummaryX |
-| Version | **1.3.15** (based on upstream 1.2.2) |
+| Version | **1.3.16** (based on upstream 1.2.2) |
 
 ---
 
@@ -85,6 +85,12 @@ Open **Extensions → InlineSummaryX**.
 | Response Token Limit | Max summary length in tokens. `0` uses the current SillyTavern preset |
 
 The prompt is built in this order: start prompt + start marker → historical messages → end marker → messages in the range. Hidden and system messages are skipped. With **Enable Multi Message Prompt** the pieces are sent as separate user/assistant turns with speaker names; otherwise they are joined into one user message.
+
+**Default prompt.** The built-in prompt (`defaults.json`) writes a structured, information-dense summary in English: the current state of the whole story in sections (beginning, current scene, recent events, `{{char}}`, `{{user}}`, side characters, relationships, character development, secrets and knowledge, open threads, important facts, continuity details). SillyTavern replaces `{{char}}` and `{{user}}` with the names.
+- It rebuilds the whole story every time, so select from the first message, or from the previous summary through the newest messages. A range from the middle of the chat repeats what is still above it.
+- It refers to the default markers `<Historical_Context>` / `</Historical_Context>`. If you change the markers, change them in the prompt too.
+- Summary length is set by **Response Token Limit** (or the SillyTavern preset when it is `0`). For long stories, raise it: the limit is reserved in the context, so the context must hold the limit plus the messages.
+- It is used for a new installation, a new Setting Preset, and **Reset to Default**. A prompt you have already saved is not replaced.
 
 ### Connection
 

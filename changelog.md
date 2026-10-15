@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.3.16
+- New default prompt: a structured, information-dense summary of the whole story in English (beginning, current scene, recent events, {{char}}, {{user}}, side characters, relationships, character development, secrets and knowledge, open threads, important facts, continuity details). It explains the `<Historical_Context>` block to the model. Used for new installations, new Setting Presets and Reset to Default; a prompt you have already saved is not changed. See the README for how to use it.
+
 #### v1.3.15
 Bug fixes.
 - With both "use a different connection profile" and "use a different preset" on, every summary left the summary profile's preset selected in your own profile (for example Deterministic instead of Universal-Light). The preset is now restored first, while the summary profile is still active, and then the profile. The summary preset is taken for the API of the summary profile.
