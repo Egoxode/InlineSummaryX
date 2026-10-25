@@ -19,7 +19,6 @@ function ResolveExtensionBaseUrl()
 }
 
 export const kExtensionBaseUrl = ResolveExtensionBaseUrl();
-export const kExtensionFolderPath = kExtensionBaseUrl;
 export const kSettingsFile = new URL("settings.html", kExtensionBaseUrl).href;
 export const kDefaultsFile = new URL("defaults.json", kExtensionBaseUrl).href;
 export const kExtraDataKey = "ILS_Data";

@@ -91,16 +91,21 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 
 	// Generate Summary Prompt
 
+	// Macros ({{char}}, {{user}}...) in the prompt and markers. The Chat Completion streaming path sends
+	// the messages as they are; the other paths (createRawPrompt) substitute again, which changes nothing.
+	// Chat messages are not substituted here: they go to the model as in the chat.
+	const sub = (text) => stContext.substituteParams(String(text ?? ""));
+
 	// Add Main Prompt
 	const mainPromptMsg = {
-		content: ilsSettings.startPrompt + "\n" + ilsSettings.historicalContextStartMarker,
+		content: sub(ilsSettings.startPrompt) + "\n" + sub(ilsSettings.historicalContextStartMarker),
 		role: "user" };
 	const startPromptTokenCount = await stContext.getTokenCountAsync(mainPromptMsg.content);
 	remainingSize -= startPromptTokenCount;
 
 	// Close historical context (content markers / mid / end prompts were removed)
 	const histEndMsg = {
-		content: ilsSettings.historicalContextEndMarker,
+		content: sub(ilsSettings.historicalContextEndMarker),
 		role: "user" };
 	const histEndTokenCount = await stContext.getTokenCountAsync(histEndMsg.content);
 	remainingSize -= histEndTokenCount;
@@ -162,7 +167,6 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 	// Historic Context
 	let historicalMsg = [];
 
-	let historicContex = "";
 	let histContextStart = 0;
 	const histDepth = Number(ilsSettings.historicalContextDepth ?? ilsSettings.historicalContexDepth ?? -1);
 	if (histDepth >= 0)
@@ -172,7 +176,6 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 			histContextStart = 0;
 	}
 
-	let histContextTokenCount = 0;
 	for (let i = msgIndex - 1; i >= histContextStart; --i)
 	{
 		const msg = GetMessageByIndex(i, stContext);
@@ -192,11 +195,10 @@ export async function MakeSummaryPrompt(msgIndex, numMsgAfterSummary, originalMe
 			{
 				const promptPiece = ToPromptMessage(msg, msgText, !ilsSettings.useMultiMessage);
 				const tokenCost = await stContext.getTokenCountAsync(promptPiece.content);
-				if ((remainingSize - tokenCost) > 0)
+				// >= 0: a message that fits exactly is still taken (the other checks fail only below 0).
+				if ((remainingSize - tokenCost) >= 0)
 				{
-					histContextTokenCount += tokenCost;
 					remainingSize -= tokenCost;
-					historicContex = promptPiece.content + historicContex;
 					historicalMsg.unshift(promptPiece);
 				}
 				else
@@ -227,7 +229,6 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 	const ilsInstance = GetILSInstance();
 	let queryFuture = null;
 	let isOk = true;
-	let errText = "";
 	let oldMaxTokens = 0;
 	let abortCtrl = new AbortController();
 	ilsInstance.abortCtrl = abortCtrl;
@@ -303,7 +304,7 @@ export async function StartGenerate(stContext, promptMsg, responseTokenLimit = 0
 	// in the meantime. The error itself still reaches FinishGenerate: awaiting the promise rethrows it.
 	Promise.resolve(queryFuture).catch(() => {});
 
-	return { generateQuery: queryFuture, isOk: isOk, errorText: errText, maxResponseTokens: oldMaxTokens, ac: abortCtrl };
+	return { generateQuery: queryFuture, isOk: isOk, maxResponseTokens: oldMaxTokens, ac: abortCtrl };
 }
 
 export async function FinishGenerate(stContext, genStart)

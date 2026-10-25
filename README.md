@@ -4,7 +4,7 @@ SillyTavern extension. Select a range of chat messages, replace it with one summ
 
 Fork of [Kristyku/InlineSummary](https://github.com/Kristyku/InlineSummary).
 
-Version **1.3.16** (based on upstream 1.2.2) ([changelog](changelog.md))
+Version **1.3.18** (based on upstream 1.2.2) ([changelog](changelog.md))
 
 ## AI Disclaimer
 
@@ -60,6 +60,8 @@ Summaries are normal chat messages: they go into later prompts, they can be edit
 
 Aliases: `/ils-sum`, `/ils-summarise`, `/ils-summarize` for `/ils`; `/ils-undo`, `/ils-back` for `/ils-restore`. `*` is the same as `all`.
 
+While a summary is being generated, `/ils` and `/ils-restore` do nothing and show "Another summary operation is running". Run them again when it has finished.
+
 ## Settings
 
 Open **Extensions → InlineSummaryX**.
@@ -86,8 +88,8 @@ The prompt is built in this order: start prompt + start marker → historical me
 
 | Setting | Meaning |
 | :--- | :--- |
-| Use specified Connection Profile | Switch API profile only while summarising |
-| Use specified API Preset | Switch generation preset only while summarising (the preset chosen for the API in use; with a different Connection Profile, the API of that profile). Afterwards the preset is restored first, then the profile. Stays ticked if no preset is chosen yet (nothing is switched); it is unticked only if the chosen preset no longer exists |
+| Use specified Connection Profile | Switch API profile only while summarising. The chat needs a connection profile of its own (Connection Profiles), so it can be switched back; without one the summary does not start |
+| Use specified API Preset | Switch generation preset only while summarising (the preset chosen for the API in use; with a different Connection Profile, the API of that profile). Afterwards the preset is restored first, then the profile. Stays ticked if no preset is chosen yet (`<None>`, nothing is switched); it is unticked only if the chosen preset no longer exists |
 
 Unsaved edits to the current profile or preset are discarded when the extension swaps them.
 
@@ -152,6 +154,8 @@ Other extensions can listen on SillyTavern's event bus:
 - Fix in 1.3.12: if something fails after the summary request is sent, the request is stopped instead of running to the end in the backend.
 - Fixes in 1.3.13: if the chat cannot be saved when a summary starts, the request is stopped at once instead of waiting for the whole response (and no wrong "chat was changed" warning); the temporary token limit is restored after such failures.
 - Added in 1.3.14: **Unpack summaries in all chats** button (Settings → Misc) for a complete unpack before uninstalling.
+- Fixes in 1.3.17: no summary with a different connection profile while the chat has no profile of its own (the summary profile used to stay active); `{{char}}` / `{{user}}` in the prompt are replaced with Chat Completion streaming too; the API Preset list starts with `<None>`.
+- Fixes in 1.3.18: `/ils` while a summary is generating no longer moves that summary (it could overwrite another summary); `/ils` and `/ils-restore` then say that another operation is running; a manual summary locks sending like an AI summary; in the expanded originals your messages show your persona avatar.
 
 Full history: `changelog.md`.
 

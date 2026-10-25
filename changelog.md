@@ -1,5 +1,21 @@
 # Full Changelog
 
+#### v1.3.18
+Bug fixes.
+- `/ils A B` typed while another summary was generating changed the place where that summary was written. The summary was then thrown away with a wrong "chat was changed" warning, or, if another summary stood at the new place, it overwrote that summary's text and left "Generating..." behind. A summary now keeps the range it started with; `/ils` during a generation does nothing and says that another summary operation is running.
+- `/ils-restore` and "Restore all originals" during a generation said "No summaries to restore". They now say that another operation is running.
+- A manual summary did not lock sending (an AI summary does): a message sent while the chat was being saved and reloaded could be lost. Sending is now locked for that moment too.
+- In the expanded original messages, your own messages from older chats showed a broken image instead of an avatar. They now show your persona avatar, as SillyTavern does in the chat.
+- Removed unused code.
+
+#### v1.3.17
+Bug fixes.
+- With "use a different connection profile" on and no connection profile selected for the chat, the summary profile stayed active after every summary (its API, model and preset): SillyTavern has nothing to switch back to. The summary now does not start and says to select a connection profile first.
+- With Chat Completion and streaming on, `{{char}}`, `{{user}}` and other macros in the prompt and the history markers were sent to the model as they are. They are now replaced with the names, as with the other APIs. Chat messages are sent as before.
+- The API Preset list showed the first preset while none was chosen (and none was used). It now starts with `<None>`.
+- A history message that fitted the context exactly was left out; it is now included.
+- Removed unused code.
+
 #### v1.3.16
 - New default prompt: a structured, information-dense summary of the whole story in English (beginning, current scene, recent events, {{char}}, {{user}}, side characters, relationships, character development, secrets and knowledge, open threads, important facts, continuity details). It explains the `<Historical_Context>` block to the model. Used for new installations, new Setting Presets and Reset to Default; a prompt you have already saved is not changed. See the README for how to use it.
 

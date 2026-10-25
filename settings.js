@@ -36,6 +36,7 @@ import
 	kExtensionName,
 	kDefaultsFile,
 	GetILSInstance,
+	IsOperationLockEngaged,
 	ShowError,
 	ShowWarning,
 	Debounce
@@ -43,16 +44,6 @@ import
 
 export let gSettings = {};
 export let gSpName = "Default";
-
-export function GetCurrentSettings()
-{
-	return gSettings;
-}
-
-export function GetCurrentSettingsName()
-{
-	return gSpName;
-}
 
 // =========================
 // Settings Main
@@ -125,18 +116,6 @@ export async function LoadSettings(stContext)
 	gSpName = settingPresetName;
 
 	return [gSettings, gSpName];
-}
-
-export function GetPresetSettings(stContext, presetName)
-{
-	// Get or Initialise root settings
-	stContext.extensionSettings[kExtensionName] ??= {};
-	let rootSettings = stContext.extensionSettings[kExtensionName];
-
-	if (rootSettings.spData && rootSettings.spData[presetName])
-		return rootSettings.spData[presetName];
-
-	return null;
 }
 
 export async function SwapProfile(profileName)
@@ -389,6 +368,12 @@ export async function OnSettingRestoreAll()
 		ShowError("Restore function is not ready yet. Reload the page and try again.");
 		return;
 	}
+	// Otherwise the restore does nothing and reports that there are no summaries.
+	if (IsOperationLockEngaged())
+	{
+		ShowWarning("Another summary operation is running. Try again when it has finished.");
+		return;
+	}
 
 	const restored = await restoreFn(Infinity);
 	if (restored === 0)
@@ -574,6 +559,9 @@ export async function UpdateSettingsUI()
 		if (presetDropdown && presetDropdown.length)
 		{
 			presetDropdown.empty();
+			// "Not chosen" first, as in the profile list: otherwise the list shows the first preset
+			// while none is used (the summary keeps the current preset until one is picked).
+			presetDropdown.append($('<option>', { value: "", text: "<None>" }));
 
 			const presetNames = presetManager.getPresetList().preset_names;
 			const presetList = Object.keys(presetNames);
@@ -605,11 +593,9 @@ export async function UpdateSettingsUI()
 
 			// Text Gen lists names by index (Object.keys gives "0", "1"...), the others list names as keys.
 			const knownNames = apiMode === "textgenerationwebui" ? presetList.map(id => presetNames[id]) : presetList;
-			if (presetName != "" && knownNames.includes(presetName))
-			{
-				presetDropdown.val(presetName);
-			}
-			else if (presetName != "")
+			const known = presetName != "" && knownNames.includes(presetName);
+			presetDropdown.val(known ? presetName : "");
+			if (presetName != "" && !known)
 			{
 				// A preset was chosen but no longer exists. An empty name just means "not chosen yet": keep the checkbox as is.
 				if (gSettings.useDifferentApiPreset)

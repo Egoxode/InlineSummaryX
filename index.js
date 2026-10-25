@@ -30,6 +30,7 @@ import { getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default
 import { timestampToMoment } from '../../../../scripts/utils.js';
 import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
 import { power_user } from '../../../../scripts/power-user.js';
+import { user_avatar } from '../../../../scripts/personas.js';
 import { getRegexedString, regex_placement } from "../../../extensions/regex/engine.js";
 
 import
@@ -41,7 +42,6 @@ import
 	ShowError,
 	ShowWarning,
 	Sleep,
-	SafeJsonStringify,
 	GetILSInstance,
 	IsOperationLockEngaged,
 	GetMessageByIndex
@@ -729,6 +729,14 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 	{
 		prevProfile = (await stContext.executeSlashCommandsWithOptions("/profile")).pipe;
 
+		// Without a profile of the chat there is nothing to switch back to: "/profile <None>" only clears
+		// the selection, and the API, model and preset of the summary profile would stay. Do not swap at all.
+		if (!prevProfile || prevProfile === "<None>")
+		{
+			ShowError("No connection profile is selected for the chat, so the summary profile could not be switched back afterwards.\nSelect a connection profile (Connection Profiles) or turn off the summary profile.\nGeneration Aborted.");
+			return { success: false, useDifferentProfile: false, prevProfile: "", useDifferentApiPreset: false, prevPreset: "" };
+		}
+
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + gSettings.profileName);
 		stContext = SillyTavern.getContext(); // Update context just in case
 		if (swapResult.isError)
@@ -891,6 +899,8 @@ async function GenerateSummaryAI()
 	const selection = GetSelection(stContext);
 	if (!IsValidRangeSelection(selection))
 		return false;
+	// The range is read once: /ils during the generation must not move this summary.
+	const { start, end } = selection;
 
 	const ilsInstance = GetILSInstance()
 	if (ilsInstance.operationLock)
@@ -900,7 +910,6 @@ async function GenerateSummaryAI()
 	stContext.deactivateSendButtons();
 
 	let profileSwap = { success: false, useDifferentProfile: false, useDifferentApiPreset: false };
-	let inserted = false;
 	let genStart = null;
 	let genFinished = false;
 	const startChatId = stContext.chatId;
@@ -911,8 +920,8 @@ async function GenerateSummaryAI()
 		if (!profileSwap.success)
 			return false;
 
-		const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-		const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(selection.start, stContext.chat.length - (selection.end + 1), originalMessages, stContext, gSettings);
+		const originalMessages = stContext.chat.slice(start, end + 1);
+		const { promptOk, promptMsg, promptError } = await MakeSummaryPrompt(start, stContext.chat.length - (end + 1), originalMessages, stContext, gSettings);
 
 		if (!promptOk)
 		{
@@ -924,18 +933,17 @@ async function GenerateSummaryAI()
 		genStart = await StartGenerate(stContext, promptMsg, gSettings.tokenLimit);
 
 		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
-		stContext.chat.splice(selection.start, originalMessages.length);
-		stContext.chat.splice(selection.start, 0, newSummaryMsg);
-		inserted = true;
+		stContext.chat.splice(start, originalMessages.length);
+		stContext.chat.splice(start, 0, newSummaryMsg);
 
-		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.", selection.start);
+		const chatReload1 = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary generation could not be completed. Refreshing the page is recommended.", start);
 		if (!chatReload1)
 		{
 			// The summary cannot be written anyway: stop the request instead of waiting for the whole response.
 			StopSummaryRequest();
 			await FinishGenerate(stContext, genStart);
 			genFinished = true;
-			try { RestoreOriginalsInPlace(SillyTavern.getContext(), selection.start); }
+			try { RestoreOriginalsInPlace(SillyTavern.getContext(), start); }
 			catch (e) { ShowError("Failed to roll back original messages after a save error.", e); }
 			return false;
 		}
@@ -943,7 +951,7 @@ async function GenerateSummaryAI()
 		// SillyTavern's saveChat does not throw when saving fails (it only shows its own toast). The reload
 		// then brings the chat back from disk without the Generating... message, so the summary has nowhere to go.
 		const reloaded = SillyTavern.getContext();
-		if (reloaded.chatId === startChatId && !HasOriginalMessages(reloaded.chat[selection.start]))
+		if (reloaded.chatId === startChatId && !HasOriginalMessages(reloaded.chat[start]))
 		{
 			ShowError("The chat could not be saved, so the summary was not created. The original messages were not changed.");
 			StopSummaryRequest();
@@ -952,8 +960,8 @@ async function GenerateSummaryAI()
 			return false;
 		}
 
-		await BringIntoView(selection.start);
-		AttachSpinnerToMessage(selection.start);
+		await BringIntoView(start);
+		AttachSpinnerToMessage(start);
 		ShowGeneratingToast();
 
 		const genResponse = await FinishGenerate(stContext, genStart);
@@ -961,7 +969,7 @@ async function GenerateSummaryAI()
 		HideGeneratingToast();
 
 		stContext = SillyTavern.getContext();
-		const summarySlot = selection.start;
+		const summarySlot = start;
 
 		// The user may have switched chats while the request was running; never write into a different chat.
 		if (stContext.chatId !== startChatId || !HasOriginalMessages(stContext.chat[summarySlot]))
@@ -977,7 +985,6 @@ async function GenerateSummaryAI()
 			await SaveAndReloadChat(stContext, "Failed to Save and Reload chat after aborting the summary.");
 			toastr.info("[ILS] Summary aborted. Original messages restored.");
 			ClearSelection(stContext, false);
-			inserted = false;
 			return false;
 		}
 
@@ -1013,7 +1020,6 @@ async function GenerateSummaryAI()
 		ilsInstance.operationLock = false;
 		ilsInstance.abortCtrl = null;
 		ilsInstance.cancelRequested = false;
-		void inserted;
 	}
 }
 
@@ -1023,17 +1029,20 @@ async function GenerateSummaryManual()
 	const selection = GetSelection(stContext);
 	if (!IsValidRangeSelection(selection))
 		return false;
+	// The range is read once: /ils during the generation must not move this summary.
+	const { start, end } = selection;
 
 	const ilsInstance = GetILSInstance();
 	if (ilsInstance.operationLock)
 		return false;
 
 	ilsInstance.operationLock = true;
+	stContext.deactivateSendButtons();
 
 	try
 	{
 		// Prepare original messages and prompt
-		const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+		const originalMessages = stContext.chat.slice(start, end + 1);
 
 		const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
 		newSummaryMsg.mes = "_Manual Summary_\n_Edit and replace this message with a summary_";
@@ -1044,22 +1053,23 @@ async function GenerateSummaryManual()
 		WriteExtraTokenCount(newSummaryMsg, await stContext.getTokenCountAsync(newSummaryMsg.mes));
 
 		// Delete Originals
-		stContext.chat.splice(selection.start, originalMessages.length);
+		stContext.chat.splice(start, originalMessages.length);
 		// Add Summary
-		stContext.chat.splice(selection.start, 0, newSummaryMsg);
+		stContext.chat.splice(start, 0, newSummaryMsg);
 
-		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: selection.start, originalMessages: originalMessages, isManual: true, isRegenerate: false });
+		await stContext.eventSource.emit("ILS_SummaryAdded", { msgIndex: start, originalMessages: originalMessages, isManual: true, isRegenerate: false });
 
 		ClearSelection(stContext, false);
 
-		const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", selection.start);
+		const chatReload = await SaveAndReloadChat(stContext, "Failed to Save and Reload chat. Summary could not be saved. Refreshing the page is recommended.", start);
 
 		if (chatReload)
-			BringIntoView(selection.start);
+			BringIntoView(start);
 		return chatReload;
 	}
 	finally
 	{
+		SillyTavern.getContext().activateSendButtons();
 		ilsInstance.operationLock = false;
 	}
 }
@@ -1330,8 +1340,6 @@ const kHeaderButtons = [
 			{
 				await stContext.eventSource.emit("ILS_RestoreOriginalsBegin", { msgIndex });
 
-				const summaryMsg = GetMessageByIndex(msgIndex, stContext);
-
 				// Technically this being false should be an error, since we shouldn't be able to click restore
 				// on a message that doesn't have Original Messages.
 				RestoreOriginalsInPlace(stContext, msgIndex);
@@ -1446,13 +1454,6 @@ function RefreshMessageElements(messageDiv, msgIndex)
 
 			messageDiv.querySelector(".mes_block")?.appendChild(newOrigMsgDiv);
 		}
-
-		// Remove swipe button on Summaries as swiping on a summary would likely break stuff
-		/* Revert for now, apparently causes issues on mobile?
-		const swipeButton = messageDiv.querySelector(".swipeRightBlock");
-		if (swipeButton)
-			swipeButton.remove();
-		*/
 	}
 	else if (existingOrigMsgDiv)
 	{
@@ -1626,9 +1627,10 @@ function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, pa
 			else
 				avatarImg.src = default_avatar;
 		}
-		else if (msgObject.is_user && msgObject.force_avatar)
+		else
 		{
-			avatarImg.src = msgObject.force_avatar;
+			// As SillyTavern does: the persona avatar unless the message keeps its own (old chats have none).
+			avatarImg.src = msgObject.force_avatar || stContext.getThumbnailUrl('persona', user_avatar);
 		}
 		headerRow.appendChild(avatarImg);
 
@@ -1905,6 +1907,12 @@ function OnMessageSwiped(data)
 // =========================
 async function SummariseCommand(namedArgs, unnamedArgs)
 {
+	if (IsOperationLockEngaged())
+	{
+		ShowWarning("Another summary operation is running. Try again when it has finished.");
+		return "";
+	}
+
 	const stContext = SillyTavern.getContext();
 	const selection = GetSelection(stContext);
 
@@ -1930,6 +1938,12 @@ async function SummariseCommand(namedArgs, unnamedArgs)
 
 async function RestoreCommand(namedArgs, unnamedArgs)
 {
+	if (IsOperationLockEngaged())
+	{
+		ShowWarning("Another summary operation is running. Try again when it has finished.");
+		return "";
+	}
+
 	const raw = String(unnamedArgs ?? "").trim().toLowerCase();
 	const token = raw.split(/\s+/)[0] || "";
 	const restoreAll = token === "all" || token === "*";
